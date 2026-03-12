@@ -1,0 +1,20 @@
+{
+    "input_table": "path/to/input_table.tsv",
+    "output_dir": "output",
+    "technology": "illumina",
+    "use_wgsim": true,
+
+    "assembly_store": "path/to/assembly_store",
+    "python_bin": "path/to/python",
+    "python_env": "path/to/python/env",
+
+    "references_extract_script": "path/to/reference_management/main.py",
+    "references_conda_env": "path/to/reference_env",
+
+    "wgsim_python_path": "path/to/simulate/main.py",
+    "wgsim_args": "-1 150 -2 150 -r 0.02",
+    "wgsim_conda_env": "path/to/simulate_env",
+
+    "mess_conda_env": "path/to/mess_env",
+    "minimap2_conda_env": "path/to/mapping_env"
+}

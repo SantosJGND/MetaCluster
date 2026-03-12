@@ -1,0 +1,2 @@
+clade_0	1094	1	test/run_leaf_33.NC_007358_1.sorted.bam,test/run_leaf_33.NC_007359_1.sorted.bam,test/run_leaf_33.NC_004905_2.sorted.bam,test/run_leaf_33.NC_007360_1.sorted.bam
+clade_1	900	1	test/run_leaf_33.NC_004906_1.sorted.bam

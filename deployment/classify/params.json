@@ -1,0 +1,53 @@
+{
+    "analysis_id": "",
+    "reads": "path/to/input_reads",
+    "output_dir": "output",
+    "qc": true,
+    "centrifuge": true,
+    "kraken2": true,
+    "diamond": false,
+    "krakenunique": false,
+
+    "technology": "illumina",
+    "read_type": "PE",
+
+    "python_bin": "path/to/python",
+    "python_env": "path/to/python/env",
+
+    "prinseq_params": "--lc_entropy 0.5 --lc_dust 0.7",
+    "prinseq_conda_env": "path/to/prinseq_env",
+
+    "centrifuge_index": "path/to/centrifuge/db",
+    "centrifuge_params": "--threads 4",
+    "centrifuge_conda_env": "path/to/classification_env",
+
+    "kraken2_index": "path/to/kraken2/db",
+    "kraken2_params": "",
+    "kraken2_conda_env": "path/to/classification_env",
+
+    "diamond_index": "path/to/diamond/db",
+    "diamond_params": "--sensitive -k 1",
+    "diamond_conda_env": "path/to/classification_env",
+
+    "krakenunique_index": "path/to/krakenunique/db",
+    "krakenunique_params": "--threads 4 --only-classified-output",
+    "krakenunique_conda_env": "path/to/classification_env",
+
+    "classifier_process_script": "path/to/classification/main.py",
+    "references_extract_script": "path/to/reference_management/main.py",
+    "classification_conda_env": "path/to/classification_env",
+
+    "minimap2_illumina_params": "-ax sr --secondary=no",
+    "minimap2_nanopore_params": "-ax map-ont --secondary=no",
+    "minimap2_conda_env": "path/to/mapping_env",
+
+    "msamtools_params": "-l 80 -p 95 -z 80",
+    "msamtools_conda_env": "path/to/msamtools_env",
+
+    "mosdepth_conda_env": "path/to/mosdepth_env",
+
+    "map_to_matrix_bin": "path/to/clustering/mapping_to_matrix",
+    "map_to_matrix_params": "-t 0.05 -f 0.01 -a -m 500000",
+
+    "minimum_uniq_reads": "1"
+}

@@ -1,0 +1,3 @@
+sample	taxid	reads	mutation_rate
+sample2	9606	120	0.01
+sample2	9598	60	0.025

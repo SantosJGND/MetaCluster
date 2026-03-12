@@ -1,0 +1,15 @@
+biopython==1.83
+matplotlib==3.7.2
+seaborn==0.12.2
+scikit-learn==1.6.1
+pandas==2.3.3
+pydantic
+optuna
+pytest==9.0.2
+python-dotenv==0.19.2
+requests==2.32.5
+networkx==3.2.1
+plotly==6.5.2
+scipy==1.11.4
+joblib==1.4.2
+xgboost
