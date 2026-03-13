@@ -502,7 +502,7 @@ class CompositionModeller:
         plt.savefig(f"{output_directory}/xgb_feature_importance.png")
         plt.close()
 
-    def shap_eval_plot(self, model, X_train, X_val, output_directory):
+    def shap_eval_plot(self, model: XGBClassifier, X_train, X_val, output_directory):
         import shap
         import matplotlib.pyplot as plt
 
@@ -511,7 +511,7 @@ class CompositionModeller:
         # ========================
 
         # Create SHAP explainer (tree-based method)
-        explainer = shap.Explainer(model, X_train)
+        explainer = shap.Explainer(model.predict, X_train)
         shap_values = explainer(X_val)
 
         # --- a) Global summary plot
