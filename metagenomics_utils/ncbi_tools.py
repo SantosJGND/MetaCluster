@@ -121,9 +121,10 @@ class NCBITaxonomistWrapper:
 
         still_missing = set(taxids) - set(self.lineages.keys())
         if still_missing:
+            ncbi_tools = NCBITools()
             self.logger.info(f"Still missing taxids: {len(still_missing)}")
-            for taxid in still_missing:
-                lineage = get_lineage(str(taxid))
+            lineages = ncbi_tools.retrieve_taxonomies_batch(list(still_missing))
+            for taxid, lineage in lineages.items():
                 if lineage is not None:
                     parser = NCBIlineageParser(lineage)
                     self.lineages[taxid] = {
@@ -349,6 +350,8 @@ def retrieve_passport_taxonomy(taxid: str) -> Optional[str]:
         return None
 
 
+
+
 @retry_with_backoff(max_retries=3, initial_delay=1)
 def retrieve_reference_sequence_id(accID: str, include_term=None, exclude_term=None) -> Tuple[Optional[str], Optional[str], Optional[str]]:
     try:
@@ -508,6 +511,7 @@ class NCBITools:
         self.logger.addHandler(ch)
         self.logger.propagate = False
 
+    @retry_with_backoff(max_retries=3, initial_delay=1)
     def retrieve_passport_taxonomy(self, passport: Passport) -> Optional[str]:
         try:
             handle = Entrez.efetch(db="taxonomy", id=passport.taxid, retmode="xml")
@@ -520,6 +524,46 @@ class NCBITools:
         except Exception as e:
             self.logger.error(f"An error occurred while fetching taxonomy for taxid {passport.taxid}: {e}")
             return None
+        
+    @retry_with_backoff(max_retries=3, initial_delay=1)
+    def retrieve_taxonomies_batch(self, taxids: list[int]) -> dict:
+        taxid_list = ",".join(map(str, taxids))
+        fetch_cmd = [
+            "efetch",
+            "-db",
+            "taxonomy",
+            "-id", taxid_list,
+            "-format", "xml",
+            "|", "xtract", "-pattern", "Taxon", "-element", "TaxId", "Lineage"
+        ]
+        try:
+            result = subprocess.run(" ".join(fetch_cmd), shell=True, capture_output=True, text=True)
+            if result.returncode != 0:
+                self.logger.error(f"Failed to retrieve taxonomies for taxids {taxids}: {result.stderr}")
+                return {}
+            taxonomies = {}
+            for line in result.stdout.splitlines():
+
+                line = line.split()
+                taxids = []
+                lineage = ""
+                for part in line:
+                    if part.isdigit():
+                        taxids.append(int(part))
+                    else:
+                        lineage += part + " "
+
+                if taxids:
+                    taxonomies.update(dict.fromkeys(taxids, lineage.strip()))
+
+            return taxonomies
+
+        except Exception as e:
+            import traceback
+            
+            self.logger.error(f"An error occurred while retrieving taxonomies for taxids {taxids}: {e}")
+            self.logger.error(traceback.format_exc())
+            return {}
 
     def query_sequence_databases(self, passport: Passport, include_term: Optional[str] = None, exclude_term: Optional[str] = None) -> ReferenceData:
         if passport.taxid is None or pd.isna(passport.taxid) or np.isnan(float(passport.taxid)):
