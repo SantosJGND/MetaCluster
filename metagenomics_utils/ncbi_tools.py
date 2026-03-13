@@ -123,14 +123,16 @@ class NCBITaxonomistWrapper:
         if still_missing:
             ncbi_tools = NCBITools()
             self.logger.info(f"Still missing taxids: {len(still_missing)}")
-            lineages = ncbi_tools.retrieve_taxonomies_batch(list(still_missing))
-            for taxid, lineage in lineages.items():
-                if lineage is not None:
-                    parser = NCBIlineageParser(lineage)
-                    self.lineages[taxid] = {
+            for taxid_chunk in self.split_taxids(list(still_missing), chunk_size=self.max_fetch):
+                lineages = ncbi_tools.retrieve_taxonomies_batch(list(taxid_chunk))
+                for taxid, lineage in lineages.items():
+                    if lineage is not None:
+                        parser = NCBIlineageParser(lineage)
+                        self.lineages[taxid] = {
                         level: {'name': parser.get_level(level), 'taxid': None, 'level': i}
                         for i, level in enumerate(NCBI_TAXONOMY_LEVELS_EXTENDED) if parser.get_level(level) is not None
                     }
+                time.sleep(3)
 
         self.logger.info(f"Updated lineage dictionary with {len(self.lineages)} entries.")
         self.logger.info(f"Still missing taxids after NCBI fetch: {len(set(taxids) - set(self.lineages.keys()))}")
@@ -543,7 +545,6 @@ class NCBITools:
                 return {}
             taxonomies = {}
             for line in result.stdout.splitlines():
-
                 line = line.split()
                 taxids = []
                 lineage = ""

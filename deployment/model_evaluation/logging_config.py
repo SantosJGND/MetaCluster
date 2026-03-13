@@ -103,7 +103,7 @@ def setup_logging(
     Returns:
         Configured logger instance
     """
-    logger = logging.getLogger('benchmark')
+    logger = logging.getLogger()
     logger.setLevel(logging.DEBUG)
     
     logger.handlers.clear()

@@ -393,7 +393,7 @@ def get_args():
     parser.add_argument("--cross_hit_threshold", type=float, default=0.9, help="Cross-hit probability threshold for filtering")
     
     # New arguments for enhanced features
-    parser.add_argument("--log-format", type=str, default="json", choices=["json", "text"], help="Log output format")
+    parser.add_argument("--log-format", type=str, default="text", choices=["json", "text"], help="Log output format")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose console logging")
     parser.add_argument("--generate-report", action="store_true", default=True, help="Generate HTML report (default: enabled)")
     parser.add_argument("--no-report", action="store_true", help="Disable HTML report generation")
