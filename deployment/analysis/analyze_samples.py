@@ -76,16 +76,19 @@ def process_sample(
     taxids_to_use: pd.DataFrame,
     tax_level: str,
     output_db: str,
-) -> pd.DataFrame:
+) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     """
-    Process a single sample and return predictions.
+    Process a single sample and return predictions and cluster metrics.
+    
+    Returns:
+        Tuple of (predictions DataFrame, pruned predictions DataFrame, cluster metrics dict)
     """
     merged_classification = results_dir / "classification" / f"{sample}_merged_classification.tsv"
     matched_assemblies = results_dir / "output" / "matched_assemblies.tsv"
 
     if not merged_classification.exists() or not matched_assemblies.exists():
         print(f"Missing files for sample {sample}")
-        return pd.DataFrame()
+        return pd.DataFrame(), pd.DataFrame(), {}
 
     merged_classification_df = pd.read_csv(merged_classification, sep="\t")
     matched_assemblies_df = pd.read_csv(matched_assemblies, sep="\t")
@@ -94,7 +97,7 @@ def process_sample(
         print(
             f"Not all taxids in matched assemblies are present in merged classification for sample {sample}"
         )
-        return pd.DataFrame()
+        return pd.DataFrame(), pd.DataFrame(), {}
 
     ncbi_wrapper.resolve_lineages(taxids_to_use["taxid"].tolist())
 
@@ -122,7 +125,7 @@ def process_sample(
     )
     if not overlap_manager.check_data_available():
         print(f"No overlapping data available for sample {sample}")
-        return pd.DataFrame()
+        return pd.DataFrame(), {}
 
     result_taxids = overlap_manager.m_stats_matrix["taxid"].unique().tolist()
     ncbi_wrapper.resolve_lineages(result_taxids)
@@ -149,10 +152,23 @@ def process_sample(
     keep_index = round(keep_index + 1)
     print(f"{sample}: keeping top {keep_index} predictions")
 
+    pruned_overlap_manager = OverlapManager(
+        os.path.join(results_dir, "clustering"), max_taxids=keep_index
+    )
+
     results_pred = predict_data_set_clades(
         sample,
         m_stats_stats_matrix=m_stats_stats_matrix,
         overlap_manager=overlap_manager,
+        modeller=composition_modeller,
+        input_taxa=taxids_to_use,
+        tax_level=tax_level,
+    )
+
+    pruned_results_pred = predict_data_set_clades(
+        sample,
+        m_stats_stats_matrix=m_stats_stats_matrix,
+        overlap_manager=pruned_overlap_manager,
         modeller=composition_modeller,
         input_taxa=taxids_to_use,
         tax_level=tax_level,
@@ -164,7 +180,24 @@ def process_sample(
         right_on="best_match_taxid",
     )
 
-    return results_pred_sample_df
+    pruned_results_pred = pruned_results_pred.merge(
+        m_stats_stats_matrix[["best_match_taxid", "description"]].reset_index(),
+        left_on="best_taxid_match",
+        right_on="best_match_taxid",
+    )
+
+    cluster_metrics = {
+        "sample": sample,
+        "n_total_intermediate_classifications": overlap_manager.m_stats_matrix.shape[0],
+        "n_classifications_with_coverage": overlap_manager.m_stats_matrix[
+            overlap_manager.m_stats_matrix["coverage"] > 0
+        ].shape[0],
+        "n_final_clusters": len(results_pred),
+        "n_final_clusters_pruned": len(pruned_results_pred),
+        "n_indexes_kept_from_recall": keep_index,
+    }
+
+    return results_pred_sample_df, pruned_results_pred, cluster_metrics
 
 
 def generate_summary(sample_results: pd.DataFrame) -> pd.DataFrame:
@@ -175,6 +208,11 @@ def generate_summary(sample_results: pd.DataFrame) -> pd.DataFrame:
 
     for sample in sample_results["data_set"].unique():
         sample_data = sample_results[sample_results["data_set"] == sample]
+
+        if sample_data.empty:
+            continue
+
+        representative_row = sample_data.loc[sample_data["node_precision"].idxmax()]
 
         summaries.append(
             {
@@ -191,10 +229,29 @@ def generate_summary(sample_results: pd.DataFrame) -> pd.DataFrame:
                     sample_data[sample_data["node_precision"] < 0.5]
                 ),
                 "mean_n_leaves": sample_data["n_leaves"].mean(),
+                "best_match_taxid": int(representative_row["best_match_taxid"]),
+                "description": representative_row["description"],
+                "n_leaves": int(representative_row["n_leaves"]),
             }
         )
 
     return pd.DataFrame(summaries)
+
+
+def generate_cluster_stats(cluster_metrics: list[dict]) -> pd.DataFrame:
+    """
+    Generate cluster statistics for each sample.
+    
+    Args:
+        cluster_metrics: List of cluster metric dictionaries from process_sample()
+    
+    Returns:
+        DataFrame with cluster statistics per sample
+    """
+    if not cluster_metrics:
+        return pd.DataFrame()
+    
+    return pd.DataFrame(cluster_metrics)
 
 
 def generate_plots(sample_results: pd.DataFrame, output_dir: Path) -> None:
@@ -338,6 +395,8 @@ def main():
     ncbi_wrapper = NCBITaxonomistWrapper(db=args.taxonomy_db)
 
     sample_results = []
+    sample_results_pruned = []
+    cluster_metrics_list = []
     samples_dir.mkdir(parents=True, exist_ok=True)
 
     for sample in samples:
@@ -354,7 +413,7 @@ def main():
 
         results_dir = results_dir / sdir_results[0]
 
-        results_pred = process_sample(
+        results_pred, pruned_results_pred, cluster_metrics = process_sample(
             sample=sample,
             results_dir=results_dir,
             model_dir=model_dir,
@@ -366,11 +425,20 @@ def main():
 
         if not results_pred.empty:
             sample_results.append(results_pred)
+            cluster_metrics_list.append(cluster_metrics)
 
             sample_output_dir = output_dir / "samples" / sample
             sample_output_dir.mkdir(parents=True, exist_ok=True)
             results_pred.to_csv(
                 sample_output_dir / "predictions.tsv", sep="\t", index=False
+            )
+
+        if not pruned_results_pred.empty:
+            sample_results_pruned.append(pruned_results_pred)
+            sample_output_dir = output_dir / "samples" / sample
+            sample_output_dir.mkdir(parents=True, exist_ok=True)
+            pruned_results_pred.to_csv(
+                sample_output_dir / "predictions_pruned.tsv", sep="\t", index=False
             )
 
     if not sample_results:
@@ -385,6 +453,11 @@ def main():
     summary_df = generate_summary(final_results_df)
     summary_df.to_csv(output_dir / "summary.tsv", sep="\t", index=False)
     print(f"Saved: {output_dir / 'summary.tsv'}")
+
+    cluster_stats_df = generate_cluster_stats(cluster_metrics_list)
+    if not cluster_stats_df.empty:
+        cluster_stats_df.to_csv(output_dir / "cluster_statistics.tsv", sep="\t", index=False)
+        print(f"Saved: {output_dir / 'cluster_statistics.tsv'}")
 
     metadata = {
         "generated_at": datetime.now().isoformat(),
@@ -407,6 +480,7 @@ def main():
     print(f"\nAnalysis complete! Results saved to: {output_dir}")
     print(f"  - {output_dir / 'summary.tsv'}")
     print(f"  - {output_dir / 'all_predictions.csv'}")
+    print(f"  - {output_dir / 'cluster_statistics.tsv'}")
     print(f"  - {output_dir / 'metadata.json'}")
     print(f"  - {output_dir / 'samples/'}")
 
