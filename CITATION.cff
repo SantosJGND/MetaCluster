@@ -1,0 +1,21 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "Mapping Cluster: Metagenomics Cross-Hit Resolution Benchmark"
+version: 0.1.0
+doi: 10.5281/zenodo.XXXXXXX
+date-released: 2026-06-30
+authors:
+  - given-names: Joao
+    family-names: Dourado
+    affiliation: "Instituto Nacional de Saude Doutor Ricardo Jorge (INSA)"
+    email: joao.dourado@insa.min-saude.pt
+    orcid: https://orcid.org/0000-0000-0000-0000
+license: MIT
+repository-code: "https://github.com/insa/metagenomics-evaluation-pipeline"
+keywords:
+  - metagenomics
+  - classification
+  - clustering
+  - benchmark
+  - cross-hits
+  - nextflow

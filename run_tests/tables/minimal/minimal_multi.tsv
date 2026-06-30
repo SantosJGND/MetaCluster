@@ -1,0 +1,3 @@
+sample	taxid	reads	mutation_rate	nucleotide_id	accession_id
+minimal_multi_sample1	10242	200	0.02	10242	GCA_965196905.1
+minimal_multi_sample2	10243	200	0.02	10243	GCA_026122475.1

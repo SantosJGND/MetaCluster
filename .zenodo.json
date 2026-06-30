@@ -1,0 +1,21 @@
+{
+    "title": "Mapping Cluster: Metagenomics Cross-Hit Resolution Benchmark",
+    "description": "A pipeline for benchmarking clustering methods to resolve ambiguous taxonomic classifications (Cross-Hits) in metagenomic data.",
+    "creators": [
+        {
+            "name": "Joao Dourado",
+            "affiliation": "Instituto Nacional de Saude Doutor Ricardo Jorge (INSA)"
+        }
+    ],
+    "license": "MIT",
+    "keywords": [
+        "metagenomics",
+        "classification",
+        "clustering",
+        "benchmark",
+        "cross-hits",
+        "nextflow"
+    ],
+    "access_right": "open",
+    "upload_type": "software"
+}

@@ -1,0 +1,13 @@
+name: classification
+
+channels:
+  - bioconda
+  - conda-forge
+  - defaults
+
+dependencies:
+  - perl=5.32.1
+  - centrifuge=1.0.4_beta
+  - diamond=2.0.15
+  - kraken2=2.1.2
+  - jellyfish=1.1.12

@@ -1,0 +1,13 @@
+# packages in environment at /home/insaflu/miniforge3/envs/simulate:
+#
+# Name                     Version          Build             Channel
+_libgcc_mutex              0.1              conda_forge       conda-forge
+_openmp_mutex              4.5              2_gnu             conda-forge
+libgcc                     15.1.0           h767d61c_5        conda-forge
+libgcc-ng                  15.1.0           h69a702a_5        conda-forge
+libgomp                    15.1.0           h767d61c_5        conda-forge
+libxcrypt                  4.4.36           hd590300_1        conda-forge
+libzlib                    1.3.1            hb9d3cd8_2        conda-forge
+perl                       5.32.1           7_hd590300_perl5  conda-forge
+wgsim                      1.0              h577a1d6_9        bioconda
+zlib                       1.3.1            hb9d3cd8_2        conda-forge

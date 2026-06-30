@@ -1,0 +1,94 @@
+import argparse
+import csv
+import json
+import sys
+from pathlib import Path
+
+import requests
+from .client import MLAPIClient
+
+
+def _read_rows(csv_path: str) -> list[dict]:
+    rows = []
+    with open(csv_path) as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            rows.append({
+                "taxid": int(row["taxid"]),
+                "total_uniq_reads": float(row["total_uniq_reads"]),
+                "best_match_is_best": row.get("best_match_is_best", "false").strip().lower() == "true",
+            })
+    return rows
+
+
+def _read_json(path: str) -> dict:
+    with open(path) as f:
+        return json.load(f)
+
+
+def main():
+    parser = argparse.ArgumentParser(prog="mlapi", description="INSaFLU ML API client")
+    parser.add_argument("--base-url", default="http://localhost:8000", help="API base URL")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    sub.add_parser("health", help="Liveness check")
+
+    sub.add_parser("models", help="List cached models")
+
+    reload_p = sub.add_parser("reload", help="Reload model cache")
+    reload_p.add_argument("model_type", nargs="?", help="Specific model to reload (omit for all)")
+
+    recall_p = sub.add_parser("predict-recall", help="Predict recall cutoff from raw table")
+    recall_p.add_argument("--rows", required=True, help="CSV with taxid,total_uniq_reads[,best_match_is_best]")
+    recall_p.add_argument("--model", default="gp_clf", choices=["gp_clf", "xgb_direct", "xgb_multi"])
+    recall_p.add_argument("--tax-level", default="order")
+    recall_p.add_argument("--target-recall", type=float)
+    recall_p.add_argument("--confidence", type=float)
+
+    clust_p = sub.add_parser("predict-clustering", help="Predict TELEVIR clustering threshold")
+    clust_p.add_argument("--features", required=True, help="JSON file with clustering features")
+
+    comp_p = sub.add_parser("predict-composition-stop", help="Predict stop_traversal from node features")
+    comp_p.add_argument("--features", required=True, help="JSON file with node feature dict")
+
+    args = parser.parse_args()
+    client = MLAPIClient(base_url=args.base_url)
+
+    try:
+        if args.command == "health":
+            result = client.health()
+        elif args.command == "models":
+            result = client.models()
+        elif args.command == "reload":
+            result = client.reload(args.model_type)
+        elif args.command == "predict-recall":
+            rows = _read_rows(args.rows)
+            result = client.predict_recall_cutoff(
+                rows,
+                model=args.model,
+                tax_level=args.tax_level,
+                target_recall=args.target_recall,
+                confidence=args.confidence,
+            )
+        elif args.command == "predict-clustering":
+            features = _read_json(args.features)
+            result = client.predict_clustering_threshold(features)
+        elif args.command == "predict-composition-stop":
+            features = _read_json(args.features)
+            result = client.predict_composition_stop_traversal(features)
+        else:
+            parser.print_help()
+            sys.exit(1)
+    except requests.HTTPError as e:
+        detail = e.response.text if e.response is not None else str(e)
+        print(json.dumps({"error": detail}), file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(json.dumps({"error": str(e)}), file=sys.stderr)
+        sys.exit(1)
+
+    print(json.dumps(result, indent=2))
+
+
+if __name__ == "__main__":
+    main()

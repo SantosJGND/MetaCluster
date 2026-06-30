@@ -1,0 +1,62 @@
+[
+  {
+    "name": "Row 0 — dataset_0371_plan (35 hits, 94% unclassified, 2.3M reads)",
+    "curl": "curl -s -X GET 'http://localhost:8000/predict_recall_cutoff' -H 'Content-Type: application/json' -d '{\"total_uniq_reads\":2348731,\"max_uniq_reads\":1880256,\"tax_diversity_shannon\":1.4498,\"counts_skewness\":5.5422,\"counts_kurtosis\":29.1305,\"number_hits\":35,\"taxon_proportions\":[0,0,0.027201,0,0.021131,0.004828,1e-06,0.008796,0,0,0,0.938043],\"target_recall\":null,\"confidence\":null}' | python3 -m json.tool",
+    "payload": {
+      "total_uniq_reads": 2348731,
+      "max_uniq_reads": 1880256,
+      "tax_diversity_shannon": 1.4498,
+      "counts_skewness": 5.5422,
+      "counts_kurtosis": 29.1305,
+      "number_hits": 35,
+      "taxon_proportions": [0, 0, 0.027201, 0, 0.021131, 0.004828, 1e-06, 0.008796, 0, 0, 0, 0.938043],
+      "target_recall": null,
+      "confidence": null
+    }
+  },
+  {
+    "name": "Row 1 — dataset_0316_plan (2 hits, degenerate, all unclassified, 30 reads)",
+    "curl": "",
+    "payload": {
+      "total_uniq_reads": 30,
+      "max_uniq_reads": 28,
+      "tax_diversity_shannon": -0.0,
+      "counts_skewness": 0,
+      "counts_kurtosis": -2,
+      "number_hits": 2,
+      "taxon_proportions": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+      "target_recall": null,
+      "confidence": 0.5
+    }
+  },
+  {
+    "name": "Row 2 — dataset_0789_plan (53 hits, 96% unclassified, τ=0.95, 295K reads)",
+    "curl": "",
+    "payload": {
+      "total_uniq_reads": 295652,
+      "max_uniq_reads": 222797,
+      "tax_diversity_shannon": 0.9114,
+      "counts_skewness": 6.7066,
+      "counts_kurtosis": 44.3172,
+      "number_hits": 53,
+      "taxon_proportions": [4.4e-05, 0, 0, 0, 3e-06, 0, 0.039858, 0, 0, 0, 7.4e-05, 0.960021],
+      "target_recall": 0.95,
+      "confidence": null
+    }
+  },
+  {
+    "name": "Row 3 — dataset_0466_plan (19 hits, 99% unclassified, 274K reads)",
+    "curl": "",
+    "payload": {
+      "total_uniq_reads": 274368,
+      "max_uniq_reads": 219796,
+      "tax_diversity_shannon": 0.708,
+      "counts_skewness": 3.6853,
+      "counts_kurtosis": 12.1958,
+      "number_hits": 19,
+      "taxon_proportions": [0, 0, 0, 0, 0.003269, 0, 0, 0, 0, 0, 0.001031, 0.995699],
+      "target_recall": null,
+      "confidence": null
+    }
+  }
+]

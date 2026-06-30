@@ -1,0 +1,81 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+.venv/
+.venv-*/
+venv/
+ENV/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Nextflow
+.nextflow*
+work/
+.out/
+.nf-*.*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Environment
+.env
+.env.local
+
+# Data & Logs
+*.log
+mlflow.db
+*.db
+mlruns/
+*.csv
+
+# Model artifacts
+models/
+**/models/*.pkl
+**/models/*.joblib
+**/training_results_cache.parquet
+
+# Data files
+*.fasta
+*.fasta.gz
+*.fq
+*.fq.gz
+
+# Test run (local testing)
+test_run/
+output_study/
+output/
+
+# Model artifacts
+models/
+output_study/
+
+# OS
+.DS_Store
+Thumbs.db
