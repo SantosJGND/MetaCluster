@@ -1,9 +1,11 @@
 """
 Tests for classifier_processor module.
 """
+
+from pathlib import Path
+
 import pandas as pd
 import pytest
-from pathlib import Path
 
 from classification.utils.classifier_processor import (
     CentrifugeOutputProcessor,
@@ -52,33 +54,25 @@ class TestCentrifugeOutputProcessor:
     """Tests for CentrifugeOutputProcessor class."""
 
     def test_from_file(self, sample_centrifuge_report: Path):
-        processor = CentrifugeOutputProcessor.from_file(
-            str(sample_centrifuge_report)
-        )
+        processor = CentrifugeOutputProcessor.from_file(str(sample_centrifuge_report))
         assert processor is not None
         assert isinstance(processor.report, pd.DataFrame)
 
     def test_process(self, sample_centrifuge_report: Path):
-        processor = CentrifugeOutputProcessor.from_file(
-            str(sample_centrifuge_report)
-        )
+        processor = CentrifugeOutputProcessor.from_file(str(sample_centrifuge_report))
         processor.process()
         assert not processor.final_report.empty
-        assert 'description' in processor.final_report.columns
-        assert 'taxID' in processor.final_report.columns
+        assert "description" in processor.final_report.columns
+        assert "taxID" in processor.final_report.columns
 
     def test_prep_final_report(self, sample_centrifuge_report: Path):
-        processor = CentrifugeOutputProcessor.from_file(
-            str(sample_centrifuge_report)
-        )
+        processor = CentrifugeOutputProcessor.from_file(str(sample_centrifuge_report))
         processor.process()
         processor.prep_final_report()
-        assert processor.final_report['description'].str.contains('_').any()
+        assert processor.final_report["description"].str.contains("_").any()
 
     def test_save(self, sample_centrifuge_report: Path, temp_dir: Path):
-        processor = CentrifugeOutputProcessor.from_file(
-            str(sample_centrifuge_report)
-        )
+        processor = CentrifugeOutputProcessor.from_file(str(sample_centrifuge_report))
         processor.process()
         output_path = temp_dir / "output.tsv"
         processor.save(str(output_path))
@@ -96,12 +90,12 @@ class TestKrakenOutputProcessor:
 
     def test_kraken_report_to_tree(self):
         data = {
-            'PercReads': [0.0, 10.5, 50.5],
-            'NumReadsRoot': [0, 1000, 500],
-            'Nreads': [0, 1000, 500],
-            'RankCode': ['-', '-', 'D'],
-            'taxID': [1, 2, 2],
-            'name': ['root', 'cellular organisms', 'Bacteria']
+            "PercReads": [0.0, 10.5, 50.5],
+            "NumReadsRoot": [0, 1000, 500],
+            "Nreads": [0, 1000, 500],
+            "RankCode": ["-", "-", "D"],
+            "taxID": [1, 2, 2],
+            "name": ["root", "cellular organisms", "Bacteria"],
         }
         df = pd.DataFrame(data)
         nodes, edges = KrakenOutputProcessor.kraken_report_to_tree(df)
@@ -127,16 +121,14 @@ class TestKrakenUniqueOutputProcessor:
     """Tests for KrakenUniqueOutputProcessor class."""
 
     def test_from_file(self, sample_krakenunique_report: Path):
-        processor = KrakenUniqOutputProcessor.from_file(
-            str(sample_krakenunique_report)
-        )
+        processor = KrakenUniqOutputProcessor.from_file(str(sample_krakenunique_report))
         assert processor is not None
 
     def test_process(self, sample_krakenunique_report: Path):
         processor = KrakenUniqOutputProcessor(str(sample_krakenunique_report), min_uniq_reads=1)
         processor = processor.from_file(str(sample_krakenunique_report))
         processor.process()
-        assert 'description' in processor.final_report.columns
+        assert "description" in processor.final_report.columns
 
 
 @pytest.mark.unit
@@ -151,7 +143,7 @@ class TestDiamondOutputProcessor:
         processor = DiamondOutputProcessor(str(sample_diamond_report), min_uniq_reads=1)
         processor = processor.from_file(str(sample_diamond_report))
         processor.process()
-        assert 'description' in processor.final_report.columns
+        assert "description" in processor.final_report.columns
 
 
 @pytest.mark.unit

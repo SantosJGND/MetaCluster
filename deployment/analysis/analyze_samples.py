@@ -19,24 +19,21 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
+
 from metagenomics_utils.ncbi_tools import NCBITaxonomistWrapper
 from metagenomics_utils.overlap_manager import OverlapManager
-
 from metagenomics_utils.overlap_manager.node_stats import (
     dataframe_update_with_lineage,
 )
 from metagenomics_utils.overlap_manager.om_models import (
-    BaseCompositionModeller,
-    XGBCompositionModeller,
-    RecallModeller,
     CutoffRecallModeller,
     GPCLFRecallModeller,
+    RecallModeller,
+    XGBCompositionModeller,
     predict_data_set_clades_composition,
 )
 
-logging.basicConfig(
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
+logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
@@ -72,8 +69,7 @@ def _load_recall_modeller(model_dir: str, data_set_divide: int) -> RecallModelle
 
     available = [f for f in os.listdir(model_dir) if f.endswith("_bundle.pkl")]
     raise FileNotFoundError(
-        f"No recognised recall bundle in {model_dir}. "
-        f"Expected one of: {list(bundle_map)}. Found: {available}"
+        f"No recognised recall bundle in {model_dir}. Expected one of: {list(bundle_map)}. Found: {available}"
     )
 
 
@@ -99,7 +95,7 @@ def process_sample(
 ) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     """
     Process a single sample and return predictions and cluster metrics.
-    
+
     Args:
         sample: Sample identifier.
         results_dir: Path to sample results directory.
@@ -110,27 +106,25 @@ def process_sample(
         output_db: Path to taxonomy database.
         target_recall: Target recall threshold (default 0.95).
         data_set_divide: Number of recall divisions used in model (default 5).
-    
+
     Returns:
         Tuple of (predictions DataFrame, pruned predictions DataFrame, cluster metrics dict)
     """
     merged_classification_dir = results_dir / "classification"
-    merged_classification_files = list(merged_classification_dir.glob(f"*merged_classification.tsv"))
+    merged_classification_files = list(merged_classification_dir.glob("*merged_classification.tsv"))
 
     matched_assemblies = results_dir / "output" / "matched_assemblies.tsv"
 
     if not merged_classification_files or not matched_assemblies.exists():
         logger.error(f"Missing files for sample {sample}")
         return pd.DataFrame(), pd.DataFrame(), {}
-    
+
     merged_classification = merged_classification_files[0]
     merged_classification_df = pd.read_csv(merged_classification, sep="\t")
     matched_assemblies_df = pd.read_csv(matched_assemblies, sep="\t")
 
     if not matched_assemblies_df["taxid"].isin(merged_classification_df["taxid"]).all():
-        logger.error(
-            f"Not all taxids in matched assemblies are present in merged classification for sample {sample}"
-        )
+        logger.error(f"Not all taxids in matched assemblies are present in merged classification for sample {sample}")
         return pd.DataFrame(), pd.DataFrame(), {}
 
     ncbi_wrapper.resolve_lineages(taxids_to_use["taxid"].tolist())
@@ -140,28 +134,22 @@ def process_sample(
 
     recall_modeller = _load_recall_modeller(os.path.join(model_dir), data_set_divide)
 
-    overlap_manager = OverlapManager(
-        os.path.join(results_dir, "clustering"), max_proportion=1.0
-    )
+    overlap_manager = OverlapManager(os.path.join(results_dir, "clustering"), max_proportion=1.0)
     if not overlap_manager.check_data_available():
         logger.error(f"No overlapping data available for sample {sample}")
         return pd.DataFrame(), pd.DataFrame(), {}
 
     result_taxids = overlap_manager.m_stats_matrix["taxid"].unique().tolist()
-    
+
     ncbi_wrapper.resolve_lineages(result_taxids)
 
-    m_stats_stats_matrix = dataframe_update_with_lineage(
-        overlap_manager.m_stats_matrix, ncbi_wrapper=ncbi_wrapper
-    )
+    m_stats_stats_matrix = dataframe_update_with_lineage(overlap_manager.m_stats_matrix, ncbi_wrapper=ncbi_wrapper)
     m_stats_stats_matrix = _add_best_match_columns(m_stats_stats_matrix)
 
     raw_pred = recall_modeller.predict(m_stats_stats_matrix)
-    target_percentile = recall_modeller.predict_cutoff(
-        m_stats_stats_matrix, target_recall=target_recall
-    )
+    target_percentile = recall_modeller.predict_cutoff(m_stats_stats_matrix, target_recall=target_recall)
 
-    if hasattr(raw_pred, 'shape') and raw_pred.ndim == 2:
+    if hasattr(raw_pred, "shape") and raw_pred.ndim == 2:
         raw_pred_df = pd.DataFrame(raw_pred, columns=recall_modeller.RecP_target_cols)
         last_best_match_relindex = raw_pred_df.iloc[0].get("last_best_match_relindex", 0.0)
     else:
@@ -171,16 +159,18 @@ def process_sample(
     keep_index = round(target_percentile * m_stats_stats_matrix.shape[0])
     if keep_index == 0:
         keep_index = 1
-    logger.info(f"{sample}: keeping top {keep_index} predictions (target_recall={target_recall}, percentile={target_percentile:.2f})")
+    logger.info(
+        f"{sample}: keeping top {keep_index} predictions (target_recall={target_recall}, percentile={target_percentile:.2f})"
+    )
 
     # Calculate coverage proportions for filtering analysis
     original_matrix = overlap_manager.original_m_stats_matrix
     if original_matrix is not None and not original_matrix.empty:
-        total_with_coverage = (original_matrix['coverage'] > 0).sum()
+        total_with_coverage = (original_matrix["coverage"] > 0).sum()
         kept_matrix = original_matrix.head(keep_index)
-        kept_with_coverage = (kept_matrix['coverage'] > 0).sum() if not kept_matrix.empty else 0
+        kept_with_coverage = (kept_matrix["coverage"] > 0).sum() if not kept_matrix.empty else 0
         filtered_with_coverage = total_with_coverage - kept_with_coverage
-        
+
         prop_coverage_above = kept_with_coverage / total_with_coverage if total_with_coverage > 0 else 0
         prop_coverage_below = filtered_with_coverage / total_with_coverage if total_with_coverage > 0 else 0
         resulting_percentile = keep_index / original_matrix.shape[0] if original_matrix.shape[0] > 0 else 0
@@ -189,12 +179,12 @@ def process_sample(
         prop_coverage_below = 0
         resulting_percentile = 0
 
-    pruned_overlap_manager = OverlapManager(
-        os.path.join(results_dir, "clustering"), max_proportion=target_percentile
+    pruned_overlap_manager = OverlapManager(os.path.join(results_dir, "clustering"), max_proportion=target_percentile)
+
+    logger.info(
+        f"[{sample}] Pruned: {len(pruned_overlap_manager.leaves)} leaves, {len(pruned_overlap_manager.m_stats_matrix)} matrix rows"
     )
 
-    logger.info(f"[{sample}] Pruned: {len(pruned_overlap_manager.leaves)} leaves, {len(pruned_overlap_manager.m_stats_matrix)} matrix rows")
-    
     results_pred = predict_data_set_clades_composition(
         sample,
         m_stats_stats_matrix=m_stats_stats_matrix,
@@ -223,7 +213,9 @@ def process_sample(
         input_taxa=taxids_to_use,
         tax_level=tax_level,
     )
-    logger.info(f"[{sample}] Predictions: {len(pruned_results_pred_first)} clades, {len(m_stats_stats_matrix_pruned)} matrix rows")
+    logger.info(
+        f"[{sample}] Predictions: {len(pruned_results_pred_first)} clades, {len(m_stats_stats_matrix_pruned)} matrix rows"
+    )
 
     pruned_results_pred = pruned_results_pred_first.merge(
         m_stats_stats_matrix_pruned[["best_match_taxid", "description"]].reset_index(),
@@ -276,12 +268,8 @@ def generate_summary(sample_results: pd.DataFrame) -> pd.DataFrame:
                 "median_precision": sample_data["node_precision"].median(),
                 "unique_taxa": sample_data["best_match_taxid"].nunique(),
                 "n_clades": len(sample_data),
-                "high_confidence_count": len(
-                    sample_data[sample_data["node_precision"] == 1.0]
-                ),
-                "low_confidence_count": len(
-                    sample_data[sample_data["node_precision"] < 0.5]
-                ),
+                "high_confidence_count": len(sample_data[sample_data["node_precision"] == 1.0]),
+                "low_confidence_count": len(sample_data[sample_data["node_precision"] < 0.5]),
                 "mean_n_leaves": sample_data["n_leaves"].mean(),
                 "best_match_taxid": int(representative_row["best_match_taxid"]),
                 "description": representative_row["description"],
@@ -295,16 +283,16 @@ def generate_summary(sample_results: pd.DataFrame) -> pd.DataFrame:
 def generate_cluster_stats(cluster_metrics: list[dict]) -> pd.DataFrame:
     """
     Generate cluster statistics for each sample.
-    
+
     Args:
         cluster_metrics: List of cluster metric dictionaries from process_sample()
-    
+
     Returns:
         DataFrame with cluster statistics per sample
     """
     if not cluster_metrics:
         return pd.DataFrame()
-    
+
     return pd.DataFrame(cluster_metrics)
 
 
@@ -344,12 +332,7 @@ def generate_plots(sample_results: pd.DataFrame, output_dir: Path) -> None:
     plt.close()
     logger.info("Generated: sample_comparison.png")
 
-    top_taxa = (
-        sample_results.groupby("description")["data_set"]
-        .count()
-        .sort_values(ascending=False)
-        .head(20)
-    )
+    top_taxa = sample_results.groupby("description")["data_set"].count().sort_values(ascending=False).head(20)
     plt.figure(figsize=(12, 8))
     sns.barplot(x=top_taxa.values, y=top_taxa.index, palette="magma")
     plt.xlabel("Frequency")
@@ -383,28 +366,30 @@ def plot_filtering_benefit(cluster_stats_df: pd.DataFrame, output_dir: Path) -> 
     """Plot coverage retention vs filtering for each sample."""
     if cluster_stats_df.empty:
         return
-    
+
     plots_dir = output_dir / "plots"
     plots_dir.mkdir(parents=True, exist_ok=True)
-    
+
     fig, ax = plt.subplots(figsize=(10, 6))
-    
-    samples = cluster_stats_df['sample'].tolist()
-    kept = cluster_stats_df['prop_coverage_above_cutoff'].tolist()
-    lost = cluster_stats_df['prop_coverage_below_cutoff'].tolist()
-    
+
+    samples = cluster_stats_df["sample"].tolist()
+    kept = cluster_stats_df["prop_coverage_above_cutoff"].tolist()
+    lost = cluster_stats_df["prop_coverage_below_cutoff"].tolist()
+
     y_pos = range(len(samples))
-    
-    ax.barh(y_pos, kept, label='Coverage retained (kept)', color='steelblue')
-    ax.barh(y_pos, lost, left=kept, label='Coverage lost (filtered)', color='coral')
-    
+
+    ax.barh(y_pos, kept, label="Coverage retained (kept)", color="steelblue")
+    ax.barh(y_pos, lost, left=kept, label="Coverage lost (filtered)", color="coral")
+
     ax.set_yticks(y_pos)
     ax.set_yticklabels(samples)
-    ax.set_xlabel('Proportion of references with coverage')
-    ax.set_title('Filtering Benefit: Coverage Retained vs Lost\n(Higher kept = more time saved with minimal sensitivity loss)')
-    ax.legend(loc='lower right')
+    ax.set_xlabel("Proportion of references with coverage")
+    ax.set_title(
+        "Filtering Benefit: Coverage Retained vs Lost\n(Higher kept = more time saved with minimal sensitivity loss)"
+    )
+    ax.legend(loc="lower right")
     ax.set_xlim(0, 1)
-    
+
     plt.tight_layout()
     plt.savefig(plots_dir / "filtering_benefit.png", dpi=150)
     plt.close()
@@ -412,9 +397,7 @@ def plot_filtering_benefit(cluster_stats_df: pd.DataFrame, output_dir: Path) -> 
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Analyze samples using trained composition and recall models."
-    )
+    parser = argparse.ArgumentParser(description="Analyze samples using trained composition and recall models.")
     parser.add_argument(
         "--samples-dir",
         required=True,
@@ -476,11 +459,7 @@ def main():
     if not taxids_file.exists():
         raise FileNotFoundError(f"Taxids file not found: {taxids_file}")
 
-    samples = [
-        d
-        for d in os.listdir(samples_dir)
-        if os.path.isdir(samples_dir / d) and d.startswith("ERR")
-    ]
+    samples = [d for d in os.listdir(samples_dir) if os.path.isdir(samples_dir / d) and d.startswith("ERR")]
 
     if not samples:
         logger.error(f"No sample directories found in {samples_dir}")
@@ -529,17 +508,13 @@ def main():
 
             sample_output_dir = output_dir / "samples" / sample
             sample_output_dir.mkdir(parents=True, exist_ok=True)
-            results_pred.to_csv(
-                sample_output_dir / "predictions.tsv", sep="\t", index=False
-            )
+            results_pred.to_csv(sample_output_dir / "predictions.tsv", sep="\t", index=False)
 
         if not pruned_results_pred.empty:
             sample_results_pruned.append(pruned_results_pred)
             sample_output_dir = output_dir / "samples" / sample
             sample_output_dir.mkdir(parents=True, exist_ok=True)
-            pruned_results_pred.to_csv(
-                sample_output_dir / "predictions_pruned.tsv", sep="\t", index=False
-            )
+            pruned_results_pred.to_csv(sample_output_dir / "predictions_pruned.tsv", sep="\t", index=False)
 
     if not sample_results:
         logger.error("No results to save")
@@ -575,7 +550,7 @@ def main():
 
     with open(output_dir / "metadata.json", "w") as f:
         json.dump(metadata, f, indent=2)
-        
+
     logger.info(f"Saved: {output_dir / 'metadata.json'}")
 
     if args.generate_plots:

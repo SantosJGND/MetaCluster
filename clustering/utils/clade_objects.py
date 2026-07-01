@@ -2,7 +2,6 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import List
 
 import pandas as pd
 
@@ -29,7 +28,7 @@ class CladeFilterMethod(ABC):
     def __init__(self, reference_clade: Clade):
         self.reference_clade = reference_clade
 
-    def filter_clades(self, clades: List[Clade]) -> List[Clade]:
+    def filter_clades(self, clades: list[Clade]) -> list[Clade]:
         """
         Return filtered clades
         """
@@ -66,10 +65,7 @@ class CladeFilterComposed(CladeFilterMethod):
         if clade_obj.private_proportion >= self.reference_clade.private_proportion:
             assessment = True
 
-        if (
-            clade_obj.shared_proportion_min
-            >= self.reference_clade.shared_proportion_min
-        ):
+        if clade_obj.shared_proportion_min >= self.reference_clade.shared_proportion_min:
             assessment = True
 
         return assessment
@@ -78,7 +74,7 @@ class CladeFilterComposed(CladeFilterMethod):
 class CladeFilter:
     def __init__(self, reference_clade: Clade):
         self.reference_clade = reference_clade
-        self.filters: List[CladeFilterMethod] = [
+        self.filters: list[CladeFilterMethod] = [
             # CladeFilterByPrivateProportion(self.reference_clade),
             CladeFilterBySharedProportion(self.reference_clade),
         ]
@@ -96,7 +92,7 @@ class CladeFilter:
         assessments = [filter.filter_clade(clade) for filter in self.filters]
         return any(assessments)
 
-    def filter_clades(self, clades: List[Clade]) -> List[Clade]:
+    def filter_clades(self, clades: list[Clade]) -> list[Clade]:
         """
         Return filtered clades
         """

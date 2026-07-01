@@ -1,8 +1,8 @@
 """
 Integration tests for full pipeline: simulate → classify → evaluate.
 """
+
 import subprocess
-from pathlib import Path
 
 import pytest
 
@@ -10,9 +10,7 @@ import pytest
 @pytest.mark.integration
 @pytest.mark.pipeline
 @pytest.mark.timeout(900)
-def test_full_pipeline_simulate_classify(
-    minimal_tables_dir, temp_output_dir, project_root, cleanup_nextflow
-):
+def test_full_pipeline_simulate_classify(minimal_tables_dir, temp_output_dir, project_root, cleanup_nextflow):
     """Test complete pipeline: simulate → classify."""
     table = minimal_tables_dir / "minimal_single.tsv"
     dataset_name = "minimal_single"
@@ -24,11 +22,16 @@ def test_full_pipeline_simulate_classify(
             "nextflow",
             "run",
             "deployment/simulation/simulate.nf",
-            "-profile", "conda",
-            "-c", "test_run/nextflow.config",
-            "-params-file", "test_run/params_test.json",
-            "--input_table", str(table),
-            "--output_dir", str(sim_output),
+            "-profile",
+            "conda",
+            "-c",
+            "test_run/nextflow.config",
+            "-params-file",
+            "test_run/params_test.json",
+            "--input_table",
+            str(table),
+            "--output_dir",
+            str(sim_output),
         ],
         cwd=project_root,
         capture_output=True,
@@ -50,12 +53,18 @@ def test_full_pipeline_simulate_classify(
             "nextflow",
             "run",
             "deployment/classify/classify.nf",
-            "-profile", "conda",
-            "-c", "test_run/nextflow.config",
-            "-params-file", "test_run/params_test.json",
-            "--reads", str(sim_reads_dir),
-            "--output_dir", str(classify_output),
-            "--analysis_id", "pipeline_test",
+            "-profile",
+            "conda",
+            "-c",
+            "test_run/nextflow.config",
+            "-params-file",
+            "test_run/params_test.json",
+            "--reads",
+            str(sim_reads_dir),
+            "--output_dir",
+            str(classify_output),
+            "--analysis_id",
+            "pipeline_test",
         ],
         cwd=project_root,
         capture_output=True,
@@ -72,9 +81,7 @@ def test_full_pipeline_simulate_classify(
 @pytest.mark.integration
 @pytest.mark.pipeline
 @pytest.mark.edge_case
-def test_pipeline_with_no_classifiers_enabled(
-    reads_dir, temp_output_dir, project_root, cleanup_nextflow
-):
+def test_pipeline_with_no_classifiers_enabled(reads_dir, temp_output_dir, project_root, cleanup_nextflow):
     """Test edge case: what happens if no classifiers are enabled."""
     # This test verifies the workflow handles edge cases gracefully
     # Note: At least one classifier should be enabled for meaningful results
@@ -86,14 +93,22 @@ def test_pipeline_with_no_classifiers_enabled(
             "nextflow",
             "run",
             "deployment/classify/classify.nf",
-            "-profile", "conda",
-            "-c", "test_run/nextflow.config",
-            "-params-file", "test_run/params_test.json",
-            "--reads", str(reads_dir / "fastq"),
-            "--output_dir", str(output_dir),
-            "--analysis_id", "single_classifier",
-            "--centrifuge", "false",
-            "--kraken2", "true",
+            "-profile",
+            "conda",
+            "-c",
+            "test_run/nextflow.config",
+            "-params-file",
+            "test_run/params_test.json",
+            "--reads",
+            str(reads_dir / "fastq"),
+            "--output_dir",
+            str(output_dir),
+            "--analysis_id",
+            "single_classifier",
+            "--centrifuge",
+            "false",
+            "--kraken2",
+            "true",
         ],
         cwd=project_root,
         capture_output=True,
@@ -108,9 +123,7 @@ def test_pipeline_with_no_classifiers_enabled(
 @pytest.mark.pipeline
 @pytest.mark.edge_case
 @pytest.mark.skip(reason="Requires external data - run manually")
-def test_pipeline_multiple_datasets(
-    minimal_tables_dir, temp_output_dir, project_root, cleanup_nextflow
-):
+def test_pipeline_multiple_datasets(minimal_tables_dir, temp_output_dir, project_root, cleanup_nextflow):
     """Test pipeline with multiple datasets in one table."""
     table = minimal_tables_dir / "minimal_multi.tsv"
 
@@ -120,11 +133,16 @@ def test_pipeline_multiple_datasets(
             "nextflow",
             "run",
             "deployment/simulation/simulate.nf",
-            "-profile", "conda",
-            "-c", "test_run/nextflow.config",
-            "-params-file", "test_run/params_test.json",
-            "--input_table", str(table),
-            "--output_dir", str(temp_output_dir / "multi_sim"),
+            "-profile",
+            "conda",
+            "-c",
+            "test_run/nextflow.config",
+            "-params-file",
+            "test_run/params_test.json",
+            "--input_table",
+            str(table),
+            "--output_dir",
+            str(temp_output_dir / "multi_sim"),
         ],
         cwd=project_root,
         capture_output=True,

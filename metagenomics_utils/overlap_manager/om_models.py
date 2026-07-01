@@ -1,33 +1,36 @@
-
-
-from typing import List, Optional
-
-from sklearn.base import BaseEstimator, RegressorMixin, ClassifierMixin
-from sklearn.preprocessing import StandardScaler
-from sklearn.discriminant_analysis import StandardScaler
-from xgboost import XGBClassifier
-from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
-from sklearn.model_selection import train_test_split
-from sklearn.multioutput import MultiOutputRegressor
-from metagenomics_utils.overlap_manager import OverlapManager
-import pandas as pd
-from metagenomics_utils.overlap_manager.node_stats import node_composition_level, node_leaf_shannon_tax_diversity, node_total_true_leaves, node_leaves_best_taxids, get_subset_composition
+import logging
 import os
-from pathlib import Path
-from sklearn.pipeline import Pipeline
-from typing import Union
-import numpy as np
-from metagenomics_utils.overlap_manager.node_stats import get_m_stats_matrix, normalize_by_taxlevel, get_composition_by_leaf
-from metagenomics_utils.overlap_manager.node_stats import node_composition_with_stats
-
-import joblib
 import warnings
 from copy import deepcopy
-from itertools import product
-from sklearn.gaussian_process import GaussianProcessRegressor
-from sklearn.gaussian_process.kernels import RBF, WhiteKernel, ConstantKernel
+from pathlib import Path
+
+import joblib
+import numpy as np
+import pandas as pd
 from scipy.stats import norm
-import logging
+from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
+from sklearn.discriminant_analysis import StandardScaler
+from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+from sklearn.gaussian_process import GaussianProcessRegressor
+from sklearn.gaussian_process.kernels import RBF, ConstantKernel, WhiteKernel
+from sklearn.model_selection import train_test_split
+from sklearn.multioutput import MultiOutputRegressor
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
+from xgboost import XGBClassifier
+
+from metagenomics_utils.overlap_manager import OverlapManager
+from metagenomics_utils.overlap_manager.node_stats import (
+    get_composition_by_leaf,
+    get_m_stats_matrix,
+    get_subset_composition,
+    node_composition_level,
+    node_composition_with_stats,
+    node_leaf_shannon_tax_diversity,
+    node_leaves_best_taxids,
+    node_total_true_leaves,
+    normalize_by_taxlevel,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -39,13 +42,14 @@ logger = logging.getLogger(__name__)
 
 
 def traversal_with_precision(
-        overlap_manager: OverlapManager, 
-        node: str, 
-        m_stats_stats_matrix, 
-        input_taxa: pd.DataFrame, 
-        tax_level: str = "order", 
-        results = None,
-        force_stop = False) -> List[pd.DataFrame]:
+    overlap_manager: OverlapManager,
+    node: str,
+    m_stats_stats_matrix,
+    input_taxa: pd.DataFrame,
+    tax_level: str = "order",
+    results=None,
+    force_stop=False,
+) -> list[pd.DataFrame]:
     """
     Recursive function.
     Traverse the tree, internal nodes only. At each node:
@@ -54,22 +58,28 @@ def traversal_with_precision(
     - extract node Min_Dist and Min_Shared
     - compute precision of split children.
     - determine if split increases precision.
-    - store results. 
+    - store results.
     if precision is increased by splitting, traverse (internal nodes only) children. else stop.
     """
     if results is None:
         results = []
 
-    composition = node_composition_level(overlap_manager, node, m_stats_stats_matrix, input_taxa, tax_level=tax_level).set_index('tax_level').T
+    composition = (
+        node_composition_level(overlap_manager, node, m_stats_stats_matrix, input_taxa, tax_level=tax_level)
+        .set_index("tax_level")
+        .T
+    )
     composition.reset_index(drop=True, inplace=True)
     node_true_leaves = node_total_true_leaves(overlap_manager, node, m_stats_stats_matrix)
     node_precision = 1 / len(set(node_true_leaves)) if len(node_true_leaves) > 0 else 0.0
     node_precision = 1 / node_precision if node_precision > 1 else node_precision
-    node_row = overlap_manager.all_node_stats[overlap_manager.all_node_stats['Node'] == node]
-    min_dist = node_row['Min_Pairwise_Dist'].values[0]
-    min_shared = node_row['Min_Shared'].values[0]
-    node_total_leaf_taxa_div = node_leaf_shannon_tax_diversity(overlap_manager, node, m_stats_stats_matrix, tax_level=tax_level)
-    
+    node_row = overlap_manager.all_node_stats[overlap_manager.all_node_stats["Node"] == node]
+    min_dist = node_row["Min_Pairwise_Dist"].values[0]
+    min_shared = node_row["Min_Shared"].values[0]
+    node_total_leaf_taxa_div = node_leaf_shannon_tax_diversity(
+        overlap_manager, node, m_stats_stats_matrix, tax_level=tax_level
+    )
+
     node_children = list(overlap_manager.tree.successors(node))
     new_precision = len(node_children) / len(set(node_true_leaves)) if len(node_true_leaves) > 0 else 0.0
     new_precision = 1 / new_precision if new_precision > 1 else new_precision
@@ -85,32 +95,47 @@ def traversal_with_precision(
         if min_dist == 0.0:
             stop_traversal = False
 
-    local_results = pd.DataFrame({
-        'node': [node],
-        'n_leaves': [len(overlap_manager.get_node_leaves(node))],
-        'tax_diversity': [node_total_leaf_taxa_div],
-        'n_true_leaves': [len(set(node_true_leaves))],
-        'precision': [node_precision],
-        'new_precision': [new_precision],
-        'precision_increased': [precision_increased],
-        'Min_Dist': [min_dist],
-        'Min_Shared': [min_shared],
-        'stop_traversal': [stop_traversal],
-    })
+    local_results = pd.DataFrame(
+        {
+            "node": [node],
+            "n_leaves": [len(overlap_manager.get_node_leaves(node))],
+            "tax_diversity": [node_total_leaf_taxa_div],
+            "n_true_leaves": [len(set(node_true_leaves))],
+            "precision": [node_precision],
+            "new_precision": [new_precision],
+            "precision_increased": [precision_increased],
+            "Min_Dist": [min_dist],
+            "Min_Shared": [min_shared],
+            "stop_traversal": [stop_traversal],
+        }
+    )
     local_results = pd.concat([local_results, composition], axis=1)
     results.append(local_results)
     for child in node_children:
         if overlap_manager.tree.out_degree(child) > 0:  # internal node
-            traversal_with_precision(overlap_manager, child, m_stats_stats_matrix, input_taxa, tax_level=tax_level, results=results)
+            traversal_with_precision(
+                overlap_manager, child, m_stats_stats_matrix, input_taxa, tax_level=tax_level, results=results
+            )
     return results
 
 
-def data_set_traversal_with_precision(data_set_name, study_output_filepath, ncbi_wrapper, overlap_manager: OverlapManager, input_taxa: pd.DataFrame, tax_level: str = "order"):
-    m_stats_stats_matrix = get_m_stats_matrix(data_set_name, study_output_filepath, ncbi_wrapper, overlap_manager, filter_no_leaf=True)
+def data_set_traversal_with_precision(
+    data_set_name,
+    study_output_filepath,
+    ncbi_wrapper,
+    overlap_manager: OverlapManager,
+    input_taxa: pd.DataFrame,
+    tax_level: str = "order",
+):
+    m_stats_stats_matrix = get_m_stats_matrix(
+        data_set_name, study_output_filepath, ncbi_wrapper, overlap_manager, filter_no_leaf=True
+    )
     results = []
 
     for root in overlap_manager.root_nodes:
-        root_results = traversal_with_precision(overlap_manager, root, m_stats_stats_matrix, input_taxa, tax_level=tax_level, results=[])
+        root_results = traversal_with_precision(
+            overlap_manager, root, m_stats_stats_matrix, input_taxa, tax_level=tax_level, results=[]
+        )
         root_results = [r for r in root_results if r.empty == False]
         results.extend(root_results)
 
@@ -119,19 +144,23 @@ def data_set_traversal_with_precision(data_set_name, study_output_filepath, ncbi
 
     results_df = pd.concat(results, ignore_index=True)
 
-    results_df.insert(0, 'data_set', data_set_name)
+    results_df.insert(0, "data_set", data_set_name)
     return results_df
+
 
 #####################################################################################
 ################ CROSS-HIT ANALYSIS ######################################################
 ######################################################################################
 
 
-def cross_hit_prediction_matrix(data_set_name, 
-                                study_output_filepath, 
-                                ncbi_wrapper, 
-                                overlap_manager: OverlapManager, 
-                                tax_df, tax_level: str = 'order'):
+def cross_hit_prediction_matrix(
+    data_set_name,
+    study_output_filepath,
+    ncbi_wrapper,
+    overlap_manager: OverlapManager,
+    tax_df,
+    tax_level: str = "order",
+):
     """
     For each leaf, compute the number of different taxids predicted at tax_level.
     """
@@ -140,10 +169,10 @@ def cross_hit_prediction_matrix(data_set_name,
 
     if prediction_matrix.empty:
         return pd.DataFrame()
-    
+
     if len(overlap_manager.leaves) == 0:
         return pd.DataFrame()
-    
+
     prediction_matrix = normalize_by_taxlevel(prediction_matrix, tax_level=tax_level)
 
     if prediction_matrix.empty:
@@ -151,10 +180,12 @@ def cross_hit_prediction_matrix(data_set_name,
 
     composition = get_composition_by_leaf(overlap_manager, prediction_matrix, tax_df, tax_level=tax_level)
     # is_trash is already added by get_m_stats_matrix() and preserved by normalize_by_taxlevel()
-    prediction_matrix_stats = prediction_matrix[['leaf', 'is_trash','coverage', 'covbases', 'meanmapq', 'error_rate', 'max_shared', 'total_uniq_reads']].copy()
-    
-    prediction_matrix_stats = prediction_matrix_stats.merge(composition, on='leaf', how='left')
-    prediction_matrix_stats = prediction_matrix_stats[prediction_matrix_stats['leaf'].notna()]
+    prediction_matrix_stats = prediction_matrix[
+        ["leaf", "is_trash", "coverage", "covbases", "meanmapq", "error_rate", "max_shared", "total_uniq_reads"]
+    ].copy()
+
+    prediction_matrix_stats = prediction_matrix_stats.merge(composition, on="leaf", how="left")
+    prediction_matrix_stats = prediction_matrix_stats[prediction_matrix_stats["leaf"].notna()]
 
     return prediction_matrix_stats
 
@@ -164,10 +195,16 @@ def cross_hit_prediction_matrix(data_set_name,
 ######################################################################################
 
 
-def predict_recall_cutoff_vars(data_set_divide:int, data_set_name: str, m_stats_stats_matrix: pd.DataFrame, taxa_df: pd.DataFrame, tax_level: str = "order") -> pd.DataFrame:
+def predict_recall_cutoff_vars(
+    data_set_divide: int,
+    data_set_name: str,
+    m_stats_stats_matrix: pd.DataFrame,
+    taxa_df: pd.DataFrame,
+    tax_level: str = "order",
+) -> pd.DataFrame:
     """
     Predict recall at various cutoffs and other composition statistics.
-    
+
     .. deprecated::
        Use ``RecallFeatureTransformer`` instead. This function is kept for
        backward compatibility with ``deployment/analysis/`` scripts.
@@ -175,32 +212,37 @@ def predict_recall_cutoff_vars(data_set_divide:int, data_set_name: str, m_stats_
        handle feature extraction internally.
     """
     import warnings
+
     warnings.warn(
         "predict_recall_cutoff_vars is deprecated. "
         "Use deployment.model_evaluation.features.RecallFeatureTransformer instead.",
-        DeprecationWarning, stacklevel=2,
+        DeprecationWarning,
+        stacklevel=2,
     )
     # index of last True valuie in best_match_is_best
-    m_stats_stats_matrix = m_stats_stats_matrix.sort_values(by="total_uniq_reads", ascending=False).reset_index(drop=True)
-    best_match_indices = m_stats_stats_matrix.index[m_stats_stats_matrix['best_match_is_best'] == True].tolist()
+    m_stats_stats_matrix = m_stats_stats_matrix.sort_values(by="total_uniq_reads", ascending=False).reset_index(
+        drop=True
+    )
+    best_match_indices = m_stats_stats_matrix.index[m_stats_stats_matrix["best_match_is_best"] == True].tolist()
     last_best_match_index = best_match_indices[-1] + 1 if best_match_indices else 0
-    last_best_match_relindex = (last_best_match_index) / len(m_stats_stats_matrix) if len(m_stats_stats_matrix) > 0 else 0.0
+    last_best_match_relindex = (
+        (last_best_match_index) / len(m_stats_stats_matrix) if len(m_stats_stats_matrix) > 0 else 0.0
+    )
 
     composition = node_composition_with_stats(m_stats_stats_matrix, taxa_df, tax_level=tax_level)
 
-    
     for set_divide in reversed(range(1, data_set_divide + 1)):
         threshold_index = int(m_stats_stats_matrix.shape[0] * set_divide / data_set_divide)
         best_match_indices_short = [idx for idx in best_match_indices if idx < threshold_index]
         index_recall = len(best_match_indices_short) / len(best_match_indices) if len(best_match_indices) > 0 else 0.0
-        composition.insert(0, f'index_recall_{set_divide}', index_recall)
+        composition.insert(0, f"index_recall_{set_divide}", index_recall)
 
-    composition.insert(0, 'last_best_match_relindex', last_best_match_relindex)
-    composition.insert(0, 'data_set', data_set_name)
+    composition.insert(0, "last_best_match_relindex", last_best_match_relindex)
+    composition.insert(0, "data_set", data_set_name)
 
     composition.reset_index(drop=True, inplace=True)
 
-    #composition.drop(columns=['tax_level'], inplace=True)
+    # composition.drop(columns=['tax_level'], inplace=True)
     return composition
 
 
@@ -225,7 +267,7 @@ def compute_ground_truth_division(recall_at_divs, tau, n_divisions, fractions):
 def asymmetric_loss(y_true, y_pred, over_cost=1.0, under_cost=3.0):
     """Asymmetric squared loss: overestimation penalised more."""
     diff = y_pred - y_true
-    loss = np.where(diff > 0, over_cost * diff ** 2, under_cost * diff ** 2)
+    loss = np.where(diff > 0, over_cost * diff**2, under_cost * diff**2)
     return float(np.mean(loss))
 
 
@@ -280,7 +322,6 @@ def actual_recall_at_fraction(recall_curve, fraction, n_divisions, fractions):
 ###################### RECALL #####################################
 
 
-    
 def multioutput_regressor(X_train, Y_train):
 
     rf = RandomForestRegressor(n_estimators=100, random_state=42)
@@ -291,74 +332,79 @@ def multioutput_regressor(X_train, Y_train):
 
 def xgb_multioutput(X_train, Y_train):
     from xgboost import XGBRegressor
+
     xgb = XGBRegressor(n_estimators=100, random_state=42)
     multi = MultiOutputRegressor(xgb)
     multi.fit(X_train, Y_train)
     return multi, None
 
+
 def moxgb_bayes_optimized(X_train, Y_train):
     import optuna
+    from sklearn.model_selection import KFold, cross_val_score
     from sklearn.multioutput import MultiOutputRegressor
     from xgboost import XGBRegressor
-    from sklearn.model_selection import cross_val_score, KFold
 
     cv = KFold(n_splits=10, shuffle=True, random_state=42)
 
     def objective_rf(trial):
-        
-        n_estimators = trial.suggest_int('n_estimators', 50, 300)
-        max_depth = trial.suggest_int('max_depth', 3, 20)
-        learning_rate = trial.suggest_float('learning_rate', 0.01, 0.3)
-        reg_alpha = trial.suggest_float('reg_alpha', 0.0, 1.0)
-        reg_lambda = trial.suggest_float('reg_lambda', 0.0, 1.0)
-        
-        model = MultiOutputRegressor(XGBRegressor(
-            learning_rate = learning_rate,
-            reg_alpha = reg_alpha,
-            reg_lambda = reg_lambda,
-            n_estimators=n_estimators,
-            max_depth=max_depth,
-            random_state=42
-        ))
-        
-        scores = cross_val_score(model, X_train, Y_train, cv=cv, scoring='neg_mean_absolute_error').mean()
+
+        n_estimators = trial.suggest_int("n_estimators", 50, 300)
+        max_depth = trial.suggest_int("max_depth", 3, 20)
+        learning_rate = trial.suggest_float("learning_rate", 0.01, 0.3)
+        reg_alpha = trial.suggest_float("reg_alpha", 0.0, 1.0)
+        reg_lambda = trial.suggest_float("reg_lambda", 0.0, 1.0)
+
+        model = MultiOutputRegressor(
+            XGBRegressor(
+                learning_rate=learning_rate,
+                reg_alpha=reg_alpha,
+                reg_lambda=reg_lambda,
+                n_estimators=n_estimators,
+                max_depth=max_depth,
+                random_state=42,
+            )
+        )
+
+        scores = cross_val_score(model, X_train, Y_train, cv=cv, scoring="neg_mean_absolute_error").mean()
         return scores
-    
-    study_rf = optuna.create_study(direction='minimize')
+
+    study_rf = optuna.create_study(direction="minimize")
     study_rf.optimize(objective_rf, n_trials=50)
-    rf_optuna = MultiOutputRegressor(XGBRegressor(
-        **study_rf.best_params
-    ))
+    rf_optuna = MultiOutputRegressor(XGBRegressor(**study_rf.best_params))
     rf_optuna.fit(X_train, Y_train)
 
     return rf_optuna, study_rf
 
+
 def random_forest_reg_multioutput_bayes_optimized(X_train, Y_train):
     import optuna
-    from sklearn.multioutput import MultiOutputRegressor
     from sklearn.ensemble import RandomForestRegressor
-    from sklearn.model_selection import cross_val_score, KFold
+    from sklearn.model_selection import KFold, cross_val_score
+    from sklearn.multioutput import MultiOutputRegressor
 
     cv = KFold(n_splits=10, shuffle=True, random_state=42)
 
     def objective_rf(trial):
-        n_estimators = trial.suggest_int('n_estimators', 50, 300)
-        max_depth = trial.suggest_int('max_depth', 3, 20)
-        min_samples_split = trial.suggest_int('min_samples_split', 2, 20)
-        min_samples_leaf = trial.suggest_int('min_samples_leaf', 1, 20)
-        
-        model = MultiOutputRegressor(RandomForestRegressor(
-            n_estimators=n_estimators,
-            max_depth=max_depth,
-            min_samples_split=min_samples_split,
-            min_samples_leaf=min_samples_leaf,
-            random_state=42
-        ))
-        
-        scores = cross_val_score(model, X_train, Y_train, cv=cv, scoring='neg_mean_absolute_error').mean()
+        n_estimators = trial.suggest_int("n_estimators", 50, 300)
+        max_depth = trial.suggest_int("max_depth", 3, 20)
+        min_samples_split = trial.suggest_int("min_samples_split", 2, 20)
+        min_samples_leaf = trial.suggest_int("min_samples_leaf", 1, 20)
+
+        model = MultiOutputRegressor(
+            RandomForestRegressor(
+                n_estimators=n_estimators,
+                max_depth=max_depth,
+                min_samples_split=min_samples_split,
+                min_samples_leaf=min_samples_leaf,
+                random_state=42,
+            )
+        )
+
+        scores = cross_val_score(model, X_train, Y_train, cv=cv, scoring="neg_mean_absolute_error").mean()
         return scores
-    
-    study_rf = optuna.create_study(direction='minimize')
+
+    study_rf = optuna.create_study(direction="minimize")
     study_rf.optimize(objective_rf, n_trials=50)
     rf_optuna = MultiOutputRegressor(RandomForestRegressor(**study_rf.best_params))
     rf_optuna.fit(X_train, Y_train)
@@ -368,31 +414,32 @@ def random_forest_reg_multioutput_bayes_optimized(X_train, Y_train):
     best_model.fit(X_train, Y_train)
     return best_model, study_rf
 
+
 def neural_network_multioutput_bayes_optimized(X_train, Y_train):
     import optuna
+    from sklearn.model_selection import KFold, cross_val_score
     from sklearn.multioutput import MultiOutputRegressor
     from sklearn.neural_network import MLPRegressor
-    from sklearn.model_selection import cross_val_score, KFold
 
     cv = KFold(n_splits=10, shuffle=True, random_state=42)
 
     def objective_nn(trial):
-        hidden_layer_sizes = trial.suggest_categorical('hidden_layer_sizes', [(20,50,30), (20,50, 50), (100,50, 50), (40, 60, 20)])
-        activation = trial.suggest_categorical('activation', ['relu', 'tanh'])
-        alpha = trial.suggest_float('alpha', 1e-5, 1e-2, log=True)
-        
-        model = MultiOutputRegressor(MLPRegressor(
-            hidden_layer_sizes=hidden_layer_sizes,
-            activation=activation,
-            alpha=alpha,
-            max_iter=500,
-            random_state=42
-        ))
-        
-        scores = cross_val_score(model, X_train, Y_train, cv=cv, scoring='neg_mean_absolute_error').mean()
+        hidden_layer_sizes = trial.suggest_categorical(
+            "hidden_layer_sizes", [(20, 50, 30), (20, 50, 50), (100, 50, 50), (40, 60, 20)]
+        )
+        activation = trial.suggest_categorical("activation", ["relu", "tanh"])
+        alpha = trial.suggest_float("alpha", 1e-5, 1e-2, log=True)
+
+        model = MultiOutputRegressor(
+            MLPRegressor(
+                hidden_layer_sizes=hidden_layer_sizes, activation=activation, alpha=alpha, max_iter=500, random_state=42
+            )
+        )
+
+        scores = cross_val_score(model, X_train, Y_train, cv=cv, scoring="neg_mean_absolute_error").mean()
         return scores
-    
-    study_nn = optuna.create_study(direction='minimize')
+
+    study_nn = optuna.create_study(direction="minimize")
     study_nn.optimize(objective_nn, n_trials=50)
     nn_optuna = MultiOutputRegressor(MLPRegressor(**study_nn.best_params))
     nn_optuna.fit(X_train, Y_train)
@@ -408,7 +455,7 @@ class GPModelWrapper:
 
     def __init__(self):
         self.scaler = StandardScaler()
-        self.models = []          # list of dicts with 'type': 'gp'|'constant', 'model', etc.
+        self.models = []  # list of dicts with 'type': 'gp'|'constant', 'model', etc.
         self.feature_names_ = []
         self.target_names_ = []
         self.recall_col_indices_ = []
@@ -419,14 +466,8 @@ class GPModelWrapper:
         self.feature_names_ = list(X.columns)
         self.target_names_ = list(Y.columns)
 
-        self.recall_col_indices_ = [
-            i for i, n in enumerate(self.target_names_)
-            if n.startswith('index_recall_')
-        ]
-        self.meta_col_indices_ = [
-            i for i, n in enumerate(self.target_names_)
-            if not n.startswith('index_recall_')
-        ]
+        self.recall_col_indices_ = [i for i, n in enumerate(self.target_names_) if n.startswith("index_recall_")]
+        self.meta_col_indices_ = [i for i, n in enumerate(self.target_names_) if not n.startswith("index_recall_")]
 
         X_scaled = self.scaler.fit_transform(X.values)
         Y_array = Y.values
@@ -436,20 +477,21 @@ class GPModelWrapper:
         for i in range(n_targets):
             y_col = Y_array[:, i]
             if i in self.meta_col_indices_:
-                self.models.append({
-                    'type': 'constant',
-                    'mean': float(np.mean(y_col)),
-                    'std': float(max(np.std(y_col), 0.01)),
-                })
+                self.models.append(
+                    {
+                        "type": "constant",
+                        "mean": float(np.mean(y_col)),
+                        "std": float(max(np.std(y_col), 0.01)),
+                    }
+                )
             else:
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore")
                     gp = GaussianProcessRegressor(
-                        kernel=deepcopy(kernel_template), normalize_y=True,
-                        n_restarts_optimizer=3, random_state=42
+                        kernel=deepcopy(kernel_template), normalize_y=True, n_restarts_optimizer=3, random_state=42
                     )
                     gp.fit(X_scaled, y_col)
-                    self.models.append({'type': 'gp', 'model': gp})
+                    self.models.append({"type": "gp", "model": gp})
 
     def predict(self, X):
         """Return posterior means — same shape as MultiOutputRegressor."""
@@ -461,20 +503,20 @@ class GPModelWrapper:
         return self._predict_all(X)
 
     def _predict_all(self, X):
-        X_scaled = self.scaler.transform(X.values if hasattr(X, 'values') else np.asarray(X))
+        X_scaled = self.scaler.transform(X.values if hasattr(X, "values") else np.asarray(X))
         n = X_scaled.shape[0]
         n_targets = len(self.models)
         means = np.zeros((n, n_targets))
         stds = np.ones((n, n_targets)) * 0.01
 
         for i, info in enumerate(self.models):
-            if info['type'] == 'constant':
-                means[:, i] = info['mean']
-                stds[:, i] = info['std']
+            if info["type"] == "constant":
+                means[:, i] = info["mean"]
+                stds[:, i] = info["std"]
             else:
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore")
-                    mu, sigma = info['model'].predict(X_scaled, return_std=True)
+                    mu, sigma = info["model"].predict(X_scaled, return_std=True)
                     means[:, i] = mu.flatten()
                     stds[:, i] = np.maximum(sigma.flatten(), 1e-6)
         return means, stds
@@ -488,7 +530,6 @@ def gp_clf_training_function(X_train, Y_train):
 
 
 class InjectModellerInterface:
-
     model_save_filename = "inject_xgb_bundle.pkl"
 
     model_map = {
@@ -503,11 +544,11 @@ class InjectModellerInterface:
     def __init__(self, model_type: str = "xgb"):
 
         self.trainning_func = self.model_map.get(model_type, multioutput_regressor)
-        
+
         if self.trainning_func is None:
             print(f"Model {model_type} not found. Defaulting to multioutput_regressor.")
             self.training_func = multioutput_regressor
-        
+
     def train_model(self, X_train, Y_train, bayes_optimize: bool = True) -> MultiOutputRegressor:
 
         model, _study = self.trainning_func(X_train, Y_train)
@@ -515,26 +556,27 @@ class InjectModellerInterface:
 
 
 class RecallModeller:
-
     model_save_filename = "recall_xgb_bundle.pkl"
 
     def __init__(
         self,
         data_set_divide: int = 5,
-        model_interface: Optional[InjectModellerInterface] = None,
-        tax_level: str = 'order',
+        model_interface: InjectModellerInterface | None = None,
+        tax_level: str = "order",
         feature_transformer=None,
-        sort_strategy: str = 'reads',
+        sort_strategy: str = "reads",
     ):
         self.data_set_divide = data_set_divide
         self.tax_level = tax_level
-        self.model: Optional[MultiOutputRegressor] = None
+        self.model: MultiOutputRegressor | None = None
         self.X_test = None
         self.y_test = None
-        self.model_interface = model_interface or InjectModellerInterface(model_type='xgb')
+        self.model_interface = model_interface or InjectModellerInterface(model_type="xgb")
         from deployment.model_evaluation.features import RecallFeatureTransformer
+
         self.transformer = feature_transformer or RecallFeatureTransformer(
-            tax_level=tax_level, data_set_divide=data_set_divide,
+            tax_level=tax_level,
+            data_set_divide=data_set_divide,
             sort_strategy=sort_strategy,
         )
 
@@ -558,12 +600,18 @@ class RecallModeller:
         logger = logging.getLogger(__name__)
         logger.info(
             "RecallModeller.fit: %d samples, %d features, %d targets",
-            len(full), len(feat_cols), len(target_cols),
+            len(full),
+            len(feat_cols),
+            len(target_cols),
         )
 
         from sklearn.model_selection import train_test_split
+
         X_train, X_test, Y_train, Y_test = train_test_split(
-            X, Y, test_size=test_size, random_state=random_state,
+            X,
+            Y,
+            test_size=test_size,
+            random_state=random_state,
         )
         self.X_test = X_test
         self.y_test = Y_test
@@ -582,28 +630,28 @@ class RecallModeller:
             print("No model to save.")
             return
         bundle = {
-            'model_type': 'xgb_multi',
-            'model': self.model,
-            'feature_names': self.RecP_feature_cols,
-            'target_names': self.RecP_target_cols,
-            'data_set_divide': self.data_set_divide,
-            'transformer': self.transformer,
+            "model_type": "xgb_multi",
+            "model": self.model,
+            "feature_names": self.RecP_feature_cols,
+            "target_names": self.RecP_target_cols,
+            "data_set_divide": self.data_set_divide,
+            "transformer": self.transformer,
         }
-        if hasattr(self, 'target_recall'):
-            bundle['target_recall'] = self.target_recall
+        if hasattr(self, "target_recall"):
+            bundle["target_recall"] = self.target_recall
         joblib.dump(bundle, os.path.join(output_directory, self.model_save_filename))
 
     def load_model(self, input_directory: str):
         try:
             bundle = joblib.load(os.path.join(input_directory, self.model_save_filename))
             if isinstance(bundle, dict):
-                self.model = bundle['model']
-                self.RecP_feature_cols = bundle['feature_names']
-                self.RecP_target_cols = bundle['target_names']
-                self.data_set_divide = bundle.get('data_set_divide', self.data_set_divide)
-                self.transformer = bundle['transformer']
-                if 'target_recall' in bundle:
-                    self.target_recall = bundle['target_recall']
+                self.model = bundle["model"]
+                self.RecP_feature_cols = bundle["feature_names"]
+                self.RecP_target_cols = bundle["target_names"]
+                self.data_set_divide = bundle.get("data_set_divide", self.data_set_divide)
+                self.transformer = bundle["transformer"]
+                if "target_recall" in bundle:
+                    self.target_recall = bundle["target_recall"]
             else:
                 self.model = bundle
         except Exception as e:
@@ -612,12 +660,12 @@ class RecallModeller:
     # ── Evaluation ──
 
     def evaluate_model(self, model, X_test, Y_test, ouptput_filepath):
-        from sklearn.metrics import r2_score, mean_squared_error
+        from sklearn.metrics import mean_squared_error, r2_score
 
         Y_pred = model.predict(X_test)
         r2_scores = {}
         mse_scores = {}
-        with open(ouptput_filepath, 'w') as f:
+        with open(ouptput_filepath, "w") as f:
             f.write("\t".join(["Target_Column", "R2_Score", "MSE"]) + "\n")
             for i, col in enumerate(self.RecP_target_cols):
                 r2 = r2_score(Y_test.iloc[:, i], Y_pred[:, i])
@@ -626,7 +674,7 @@ class RecallModeller:
                 mse_scores[col] = mse
                 f.write(f"{col}\t{r2}\t{mse}\n")
         return r2_scores, mse_scores
-    
+
     def feature_importances(self, model, output_filepath):
         importances = np.mean([est.feature_importances_ for est in model.estimators_], axis=0)
         feat_importance = pd.Series(importances, index=self.RecP_feature_cols).sort_values(ascending=False)
@@ -634,6 +682,7 @@ class RecallModeller:
 
     def plot_eval(self, X_test, Y_test, analysis_output_filepath):
         import matplotlib.pyplot as plt
+
         Y_pred = self.model.predict(X_test)
         differences = Y_test.values - Y_pred
         avg_differences = differences.mean(axis=0)
@@ -646,9 +695,10 @@ class RecallModeller:
 
     def model_summary(self, model, X_test, Y_test, analysis_output_filedir):
         Y_pred = model.predict(X_test)
-        from sklearn.metrics import r2_score, mean_squared_error
-        r2 = r2_score(Y_test, Y_pred, multioutput='uniform_average')
-        mse = mean_squared_error(Y_test, Y_pred, multioutput='uniform_average')
+        from sklearn.metrics import mean_squared_error, r2_score
+
+        r2 = r2_score(Y_test, Y_pred, multioutput="uniform_average")
+        mse = mean_squared_error(Y_test, Y_pred, multioutput="uniform_average")
 
         print(f"model_summary R² = {r2:.3f}, MSE = {mse:.3f}")
 
@@ -658,13 +708,14 @@ class RecallModeller:
         self.feature_importances(model, feat_importance_filepath)
         self.plot_eval(X_test, Y_test, analysis_output_filepath.replace(".txt", "_recall_prediction_differences.png"))
         import matplotlib.pyplot as plt
+
         print(Y_test.shape)
 
         for i in range(3):
             if i > Y_test.shape[0] - 1:
                 continue
-            plt.plot(range(1,  Y_test.shape[1]), Y_test.iloc[i, 1:], 'o-', label='True')
-            plt.plot(range(1,  Y_test.shape[1]), Y_pred[i, 1:], 's--', label='Predicted')
+            plt.plot(range(1, Y_test.shape[1]), Y_test.iloc[i, 1:], "o-", label="True")
+            plt.plot(range(1, Y_test.shape[1]), Y_pred[i, 1:], "s--", label="Predicted")
             plt.title(f"Sample {i}: recall curve")
             plt.xlabel("Recall index (1–5)")
             plt.ylabel("Recall value")
@@ -679,9 +730,7 @@ class RecallModeller:
         X_feat = X_feat[self.transformer.get_feature_names_out()]
         recall_pred = self.model.predict(X_feat)
         recall_pred_df = pd.DataFrame(recall_pred, columns=self.RecP_target_cols)
-        return find_percentile_for_recall(
-            recall_pred_df.iloc[0], self.data_set_divide, target_recall
-        )
+        return find_percentile_for_recall(recall_pred_df.iloc[0], self.data_set_divide, target_recall)
 
     def predict(self, X):
         X_feat = self.transformer.transform(X)
@@ -698,27 +747,24 @@ class RecallModeller:
         pred_raw = self.model.predict(X_feat)
 
         metrics = {
-            'last_best_match_relindex': float(truth['last_best_match_relindex']),
+            "last_best_match_relindex": float(truth["last_best_match_relindex"]),
         }
 
-        recall_cols = [c for c in target_cols if c.startswith('index_recall_')]
+        recall_cols = [c for c in target_cols if c.startswith("index_recall_")]
 
         if pred_raw.ndim == 2 and pred_raw.shape[1] == len(target_cols):
             pred = pd.Series(pred_raw[0], index=target_cols)
             errors = {c: float(pred[c] - truth[c]) for c in recall_cols}
-            metrics['per_division_recall_errors'] = errors
-            metrics['per_division_recall_rmse'] = float(
-                np.sqrt(np.mean([e**2 for e in errors.values()]))
-            )
+            metrics["per_division_recall_errors"] = errors
+            metrics["per_division_recall_rmse"] = float(np.sqrt(np.mean([e**2 for e in errors.values()])))
         else:
             pred_k_min = int(pred_raw[0])
             actual_k_min = next(
-                (i + 1 for i, c in enumerate(recall_cols) if truth[c] >= target_recall),
-                self.data_set_divide
+                (i + 1 for i, c in enumerate(recall_cols) if truth[c] >= target_recall), self.data_set_divide
             )
-            metrics['predicted_k_min'] = pred_k_min
-            metrics['actual_k_min'] = actual_k_min
-            metrics['cutoff_error'] = pred_k_min - actual_k_min
+            metrics["predicted_k_min"] = pred_k_min
+            metrics["actual_k_min"] = actual_k_min
+            metrics["cutoff_error"] = pred_k_min - actual_k_min
 
         return metrics
 
@@ -726,7 +772,7 @@ class RecallModeller:
 class CutoffRecallModeller(RecallModeller):
     """
     Predict minimum bins k_min needed to achieve target_recall.
-    
+
     Trains a RandomForest classifier: features -> k_min (1..data_set_divide).
     Supports predict_proba for probability-guided cutoff decisions.
     """
@@ -737,9 +783,9 @@ class CutoffRecallModeller(RecallModeller):
         self,
         data_set_divide: int = 5,
         target_recall: float = 1.0,
-        tax_level: str = 'order',
+        tax_level: str = "order",
         feature_transformer=None,
-        sort_strategy: str = 'reads',
+        sort_strategy: str = "reads",
     ):
         super().__init__(
             data_set_divide=data_set_divide,
@@ -748,11 +794,11 @@ class CutoffRecallModeller(RecallModeller):
             sort_strategy=sort_strategy,
         )
         self.target_recall = target_recall
-        self.model: Optional[RandomForestClassifier] = None
+        self.model: RandomForestClassifier | None = None
 
     def _compute_k_min(self, row):
         for k in range(1, self.data_set_divide + 1):
-            if row.get(f'index_recall_{k}', 0.0) >= self.target_recall:
+            if row.get(f"index_recall_{k}", 0.0) >= self.target_recall:
                 return k
         return self.data_set_divide
 
@@ -771,24 +817,32 @@ class CutoffRecallModeller(RecallModeller):
         target_cols = self.transformer.target_columns_
 
         X = full[feat_cols]
-        recall_cols = [c for c in target_cols if c.startswith('index_recall_')]
+        recall_cols = [c for c in target_cols if c.startswith("index_recall_")]
         y = full[recall_cols].apply(self._compute_k_min, axis=1)
 
         logger = logging.getLogger(__name__)
         logger.info(
             "CutoffRecallModeller.fit: %d samples, %d features",
-            len(full), len(feat_cols),
+            len(full),
+            len(feat_cols),
         )
 
         X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=test_size, random_state=random_state,
+            X,
+            y,
+            test_size=test_size,
+            random_state=random_state,
         )
         self.X_test = X_test
         self.y_test = y_test
 
         clf = RandomForestClassifier(
-            n_estimators=300, max_depth=12, min_samples_leaf=3,
-            class_weight='balanced', random_state=42, n_jobs=-1,
+            n_estimators=300,
+            max_depth=12,
+            min_samples_leaf=3,
+            class_weight="balanced",
+            random_state=42,
+            n_jobs=-1,
         )
         clf.fit(X_train, y_train)
         self.model = clf
@@ -825,12 +879,12 @@ class CutoffRecallModeller(RecallModeller):
             print("No model to save.")
             return
         bundle = {
-            'model_type': 'xgb_direct',
-            'model': self.model,
-            'feature_names': self.RecP_feature_cols,
-            'target_recall': self.target_recall,
-            'data_set_divide': self.data_set_divide,
-            'transformer': self.transformer,
+            "model_type": "xgb_direct",
+            "model": self.model,
+            "feature_names": self.RecP_feature_cols,
+            "target_recall": self.target_recall,
+            "data_set_divide": self.data_set_divide,
+            "transformer": self.transformer,
         }
         joblib.dump(bundle, os.path.join(output_directory, self.model_save_filename))
 
@@ -838,11 +892,11 @@ class CutoffRecallModeller(RecallModeller):
         try:
             bundle = joblib.load(os.path.join(input_directory, self.model_save_filename))
             if isinstance(bundle, dict):
-                self.model = bundle['model']
-                self.RecP_feature_cols = bundle['feature_names']
-                self.target_recall = bundle['target_recall']
-                self.data_set_divide = bundle['data_set_divide']
-                self.transformer = bundle['transformer']
+                self.model = bundle["model"]
+                self.RecP_feature_cols = bundle["feature_names"]
+                self.target_recall = bundle["target_recall"]
+                self.data_set_divide = bundle["data_set_divide"]
+                self.transformer = bundle["transformer"]
             else:
                 self.model = bundle
         except Exception as e:
@@ -850,20 +904,22 @@ class CutoffRecallModeller(RecallModeller):
 
     def evaluate_model(self, model, X_test, Y_test, output_filepath):
         from sklearn.metrics import accuracy_score
+
         Y_pred = model.predict(X_test)
         acc = accuracy_score(Y_test, Y_pred)
-        with open(output_filepath, 'w') as f:
+        with open(output_filepath, "w") as f:
             f.write(f"accuracy\t{acc}\n")
-        return {'accuracy': acc}, {}
+        return {"accuracy": acc}, {}
 
     def model_summary(self, model, X_test, Y_test, analysis_output_filedir):
         from sklearn.metrics import accuracy_score
+
         Y_pred = model.predict(X_test)
         acc = accuracy_score(Y_test, Y_pred)
         print(f"CutoffRecallModeller test accuracy = {acc:.3f}")
         output_filepath = os.path.join(analysis_output_filedir, "recall_model_analysis_results.txt")
         self.evaluate_model(model, X_test, Y_test, output_filepath)
-        return {'accuracy': acc}, {}
+        return {"accuracy": acc}, {}
 
 
 class DirectXGBRecallModeller(RecallModeller):
@@ -883,9 +939,9 @@ class DirectXGBRecallModeller(RecallModeller):
         self,
         data_set_divide: int = 5,
         target_recall: float = 1.0,
-        tax_level: str = 'order',
+        tax_level: str = "order",
         feature_transformer=None,
-        sort_strategy: str = 'reads',
+        sort_strategy: str = "reads",
     ):
         super().__init__(
             data_set_divide=data_set_divide,
@@ -894,15 +950,16 @@ class DirectXGBRecallModeller(RecallModeller):
             sort_strategy=sort_strategy,
         )
         self.target_recall = target_recall
-        self.model: Optional[RegressorMixin] = None
+        self.model: RegressorMixin | None = None
         self.fractions = np.arange(1, data_set_divide + 1) / data_set_divide
 
     def _compute_ground_truth(self, row):
-        recall_vals = np.array([
-            row.get(f'index_recall_{d}', 0.0) for d in range(1, self.data_set_divide + 1)
-        ])
+        recall_vals = np.array([row.get(f"index_recall_{d}", 0.0) for d in range(1, self.data_set_divide + 1)])
         return compute_ground_truth_division(
-            recall_vals, self.target_recall, self.data_set_divide, self.fractions,
+            recall_vals,
+            self.target_recall,
+            self.data_set_divide,
+            self.fractions,
         )
 
     def _asymmetric_weights(self, gt, over_cost=1.0, under_cost=3.0, floor=0.05):
@@ -917,6 +974,7 @@ class DirectXGBRecallModeller(RecallModeller):
         random_state=42,
     ):
         from xgboost import XGBRegressor
+
         self.transformer.fit(m_stats_matrices, taxids_to_use=taxids_to_use)
         rows = [self.transformer.transform(m) for m in m_stats_matrices]
         full = pd.concat(rows, ignore_index=True)
@@ -925,17 +983,21 @@ class DirectXGBRecallModeller(RecallModeller):
         target_cols = self.transformer.target_columns_
 
         X = full[feat_cols]
-        recall_cols = [c for c in target_cols if c.startswith('index_recall_')]
+        recall_cols = [c for c in target_cols if c.startswith("index_recall_")]
         y = full[recall_cols].apply(self._compute_ground_truth, axis=1)
 
         logger = logging.getLogger(__name__)
         logger.info(
             "DirectXGBRecallModeller.fit: %d samples, %d features",
-            len(full), len(feat_cols),
+            len(full),
+            len(feat_cols),
         )
 
         X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=test_size, random_state=random_state,
+            X,
+            y,
+            test_size=test_size,
+            random_state=random_state,
         )
         self.X_test = X_test
         self.y_test = y_test
@@ -958,12 +1020,12 @@ class DirectXGBRecallModeller(RecallModeller):
             print("No model to save.")
             return
         bundle = {
-            'model_type': 'direct_xgb',
-            'model': self.model,
-            'feature_names': self.RecP_feature_cols,
-            'target_recall': self.target_recall,
-            'data_set_divide': self.data_set_divide,
-            'transformer': self.transformer,
+            "model_type": "direct_xgb",
+            "model": self.model,
+            "feature_names": self.RecP_feature_cols,
+            "target_recall": self.target_recall,
+            "data_set_divide": self.data_set_divide,
+            "transformer": self.transformer,
         }
         joblib.dump(bundle, os.path.join(output_directory, self.model_save_filename))
 
@@ -971,35 +1033,37 @@ class DirectXGBRecallModeller(RecallModeller):
         try:
             bundle = joblib.load(os.path.join(input_directory, self.model_save_filename))
             if isinstance(bundle, dict):
-                self.model = bundle['model']
-                self.RecP_feature_cols = bundle['feature_names']
-                self.target_recall = bundle['target_recall']
-                self.data_set_divide = bundle['data_set_divide']
+                self.model = bundle["model"]
+                self.RecP_feature_cols = bundle["feature_names"]
+                self.target_recall = bundle["target_recall"]
+                self.data_set_divide = bundle["data_set_divide"]
                 self.fractions = np.arange(1, self.data_set_divide + 1) / self.data_set_divide
-                self.transformer = bundle['transformer']
+                self.transformer = bundle["transformer"]
             else:
                 self.model = bundle
         except Exception as e:
             print(f"Error loading model: {e}")
 
     def evaluate_model(self, model, X_test, Y_test, output_filepath):
-        from sklearn.metrics import r2_score, mean_squared_error
+        from sklearn.metrics import mean_squared_error, r2_score
+
         Y_pred = model.predict(X_test)
         r2 = r2_score(Y_test, Y_pred)
         mse = mean_squared_error(Y_test, Y_pred)
-        with open(output_filepath, 'w') as f:
+        with open(output_filepath, "w") as f:
             f.write(f"r2\t{r2}\nmse\t{mse}\n")
-        return {'r2': r2, 'mse': mse}, {}
+        return {"r2": r2, "mse": mse}, {}
 
     def model_summary(self, model, X_test, Y_test, analysis_output_filedir):
-        from sklearn.metrics import r2_score, mean_squared_error
+        from sklearn.metrics import mean_squared_error, r2_score
+
         Y_pred = model.predict(X_test)
         r2 = r2_score(Y_test, Y_pred)
         mse = mean_squared_error(Y_test, Y_pred)
         print(f"DirectXGB model_summary R² = {r2:.3f}, MSE = {mse:.3f}")
         output_filepath = os.path.join(analysis_output_filedir, "recall_model_analysis_results.txt")
         self.evaluate_model(model, X_test, Y_test, output_filepath)
-        return {'r2': r2, 'mse': mse}, {}
+        return {"r2": r2, "mse": mse}, {}
 
 
 class GPCLFThreshold(RegressorMixin, BaseEstimator):
@@ -1042,9 +1106,18 @@ class GPCLFThreshold(RegressorMixin, BaseEstimator):
         Random state for validation split shuffling.
     """
 
-    def __init__(self, tau=0.9, x_thresh=0.5, n_divisions=5, optimize=True,
-                 filter_degenerate=True, binarize_taxonomy=True,
-                 val_split=0.2, taxonomy_cols=None, random_state=42):
+    def __init__(
+        self,
+        tau=0.9,
+        x_thresh=0.5,
+        n_divisions=5,
+        optimize=True,
+        filter_degenerate=True,
+        binarize_taxonomy=True,
+        val_split=0.2,
+        taxonomy_cols=None,
+        random_state=42,
+    ):
         self.tau = tau
         self.x_thresh = x_thresh
         self.n_divisions = n_divisions
@@ -1056,8 +1129,11 @@ class GPCLFThreshold(RegressorMixin, BaseEstimator):
         self.random_state = random_state
         self.fractions_ = np.arange(1, n_divisions + 1) / n_divisions
         self._stats_features = {
-            'counts_kurtosis', 'counts_skewness', 'tax_diversity_shannon',
-            'max_uniq_reads', 'total_uniq_reads',
+            "counts_kurtosis",
+            "counts_skewness",
+            "tax_diversity_shannon",
+            "max_uniq_reads",
+            "total_uniq_reads",
         }
 
     def fit(self, X, y, target_names=None):
@@ -1077,10 +1153,10 @@ class GPCLFThreshold(RegressorMixin, BaseEstimator):
             Columns NOT starting with 'index_recall_' are treated as
             constant-output (no GP fitted).
         """
-        self.feature_names_ = list(X.columns) if hasattr(X, 'columns') else None
+        self.feature_names_ = list(X.columns) if hasattr(X, "columns") else None
 
         # ── Binarise taxonomy features (before numpy conversion) ──
-        if self.binarize_taxonomy and self.feature_names_ is not None and hasattr(X, 'columns'):
+        if self.binarize_taxonomy and self.feature_names_ is not None and hasattr(X, "columns"):
             if self.taxonomy_cols is not None:
                 tax_cols = [c for c in self.taxonomy_cols if c in X.columns]
             else:
@@ -1094,31 +1170,21 @@ class GPCLFThreshold(RegressorMixin, BaseEstimator):
 
         if target_names is not None:
             self.target_names_ = list(target_names)
-            self.recall_indices_ = [
-                i for i, n in enumerate(self.target_names_)
-                if str(n).startswith('index_recall_')
-            ]
-            self.meta_indices_ = [
-                i for i, n in enumerate(self.target_names_)
-                if not str(n).startswith('index_recall_')
-            ]
+            self.recall_indices_ = [i for i, n in enumerate(self.target_names_) if str(n).startswith("index_recall_")]
+            self.meta_indices_ = [i for i, n in enumerate(self.target_names_) if not str(n).startswith("index_recall_")]
         else:
             self.recall_indices_ = list(range(n_targets))
             self.meta_indices_ = []
 
         # ── Filter degenerate samples ──
         if self.filter_degenerate:
-            
-            if 'last_best_match_relindex' in self.target_names_:
-                lbmr_idx = next(
-                    i for i in self.meta_indices_
-                    if self.target_names_[i] == 'last_best_match_relindex'
-                )
+            if "last_best_match_relindex" in self.target_names_:
+                lbmr_idx = next(i for i in self.meta_indices_ if self.target_names_[i] == "last_best_match_relindex")
                 degenerate = (y[:, lbmr_idx] <= 0.0) | (y[:, lbmr_idx] >= 1.0)
             else:
                 recall_y = y[:, self.recall_indices_]
                 recall_max = recall_y.max(axis=1)
-                degenerate = (recall_max <= 0.0)
+                degenerate = recall_max <= 0.0
             valid = ~degenerate
             if valid.sum() < X.shape[0]:
                 X = X[valid]
@@ -1170,11 +1236,13 @@ class GPCLFThreshold(RegressorMixin, BaseEstimator):
         for i in range(n_targets):
             y_col = y_train_norm[:, i]
             if i in self.meta_indices_:
-                self.models_.append({
-                    'type': 'constant',
-                    'mean': float(np.mean(y_col)),
-                    'std': float(max(np.std(y_col), 0.01)),
-                })
+                self.models_.append(
+                    {
+                        "type": "constant",
+                        "mean": float(np.mean(y_col)),
+                        "std": float(max(np.std(y_col), 0.01)),
+                    }
+                )
             else:
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore")
@@ -1185,7 +1253,7 @@ class GPCLFThreshold(RegressorMixin, BaseEstimator):
                         random_state=self.random_state,
                     )
                     gp.fit(X_train_scaled, y_col)
-                    self.models_.append({'type': 'gp', 'model': gp})
+                    self.models_.append({"type": "gp", "model": gp})
 
         # ── Optimise thresholds on validation split ──
         if self.optimize:
@@ -1199,13 +1267,13 @@ class GPCLFThreshold(RegressorMixin, BaseEstimator):
         stds = np.ones((X.shape[0], len(self.models_))) * 0.01
 
         for i, info in enumerate(self.models_):
-            if info['type'] == 'constant':
-                means[:, i] = info['mean']
-                stds[:, i] = info['std']
+            if info["type"] == "constant":
+                means[:, i] = info["mean"]
+                stds[:, i] = info["std"]
             else:
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore")
-                    mu, sigma = info['model'].predict(X, return_std=True)
+                    mu, sigma = info["model"].predict(X, return_std=True)
                     means[:, i] = mu.flatten()
                     stds[:, i] = np.maximum(sigma.flatten(), 1e-6)
         return means, stds
@@ -1243,7 +1311,7 @@ class GPCLFThreshold(RegressorMixin, BaseEstimator):
         recall_means = means[:, self.recall_indices_]
         recall_stds = np.maximum(stds[:, self.recall_indices_], 1e-6)
 
-        best_loss = float('inf')
+        best_loss = float("inf")
         best_tau = None
         best_X = None
 
@@ -1254,12 +1322,12 @@ class GPCLFThreshold(RegressorMixin, BaseEstimator):
                 sigma = recall_stds[:, d]
                 probs[d, :] = 1.0 - norm.cdf(tau, loc=mu, scale=sigma)
 
-            y_true_frac = np.array([
-                compute_ground_truth_division(
-                    y_recall[s], tau, self.n_divisions, self.fractions_
-                )
-                for s in range(n_val)
-            ])
+            y_true_frac = np.array(
+                [
+                    compute_ground_truth_division(y_recall[s], tau, self.n_divisions, self.fractions_)
+                    for s in range(n_val)
+                ]
+            )
 
             for xc in X_values:
                 y_pred = predict_division_clf(probs, xc, self.fractions_)
@@ -1289,8 +1357,8 @@ class GPCLFThreshold(RegressorMixin, BaseEstimator):
         -------
         ndarray of shape (n_samples,)
         """
-        tau = tau if tau is not None else (getattr(self, 'optimal_tau_', None) or self.tau)
-        xc = x_thresh if x_thresh is not None else (getattr(self, 'optimal_X_', None) or self.x_thresh)
+        tau = tau if tau is not None else (getattr(self, "optimal_tau_", None) or self.tau)
+        xc = x_thresh if x_thresh is not None else (getattr(self, "optimal_X_", None) or self.x_thresh)
 
         X = np.asarray(X, dtype=float)
         X_scaled = self.scaler_.transform(X)
@@ -1324,9 +1392,9 @@ class GPCLFRecallModeller(RecallModeller):
         self,
         data_set_divide=5,
         model_interface=None,
-        tax_level='order',
+        tax_level="order",
         feature_transformer=None,
-        sort_strategy='reads',
+        sort_strategy="reads",
     ):
         super().__init__(
             data_set_divide=data_set_divide,
@@ -1335,7 +1403,7 @@ class GPCLFRecallModeller(RecallModeller):
             feature_transformer=feature_transformer,
             sort_strategy=sort_strategy,
         )
-        self._pipeline: Optional[GPCLFThreshold] = None
+        self._pipeline: GPCLFThreshold | None = None
         self.optimal_tau = None
         self.optimal_X = None
         self.optimal_loss = None
@@ -1378,23 +1446,31 @@ class GPCLFRecallModeller(RecallModeller):
         logger = logging.getLogger(__name__)
         logger.info(
             "GPCLFRecallModeller.fit: %d samples, %d features, %d targets",
-            len(full), len(feat_cols), len(target_cols),
+            len(full),
+            len(feat_cols),
+            len(target_cols),
         )
 
         from sklearn.model_selection import train_test_split
+
         X_train, X_test, Y_train, Y_test = train_test_split(
-            X, Y, test_size=test_size, random_state=random_state,
+            X,
+            Y,
+            test_size=test_size,
+            random_state=random_state,
         )
         self.X_test = X_test
         self.y_test = Y_test
 
         self.pipeline = GPCLFThreshold(
-            tau=0.9, x_thresh=0.5,
+            tau=0.9,
+            x_thresh=0.5,
             n_divisions=self.data_set_divide,
             optimize=optimize,
         )
         self.pipeline.fit(
-            X_train, Y_train,
+            X_train,
+            Y_train,
             target_names=target_cols,
         )
 
@@ -1412,7 +1488,9 @@ class GPCLFRecallModeller(RecallModeller):
         tau = target_recall if target_recall is not None else (self.optimal_tau or 0.9)
         x_thresh = confidence if confidence is not None else (self.optimal_X or 0.5)
         preds = self.pipeline.predict(
-            X_feat, tau=tau, x_thresh=x_thresh,
+            X_feat,
+            tau=tau,
+            x_thresh=x_thresh,
         )
         return float(preds[0])
 
@@ -1424,55 +1502,52 @@ class GPCLFRecallModeller(RecallModeller):
     def save_model(self, output_directory):
         if self.pipeline is not None:
             bundle = {
-                'model_type': 'gp_clf',
-                'pipeline': self.pipeline,
-                'feature_names': list(self.RecP_feature_cols),
-                'target_names': list(self.RecP_target_cols),
-                'data_set_divide': self.data_set_divide,
-                'optimal_tau': self.optimal_tau,
-                'optimal_X': self.optimal_X,
-                'optimal_loss': self.optimal_loss,
-                'transformer': self.transformer,
+                "model_type": "gp_clf",
+                "pipeline": self.pipeline,
+                "feature_names": list(self.RecP_feature_cols),
+                "target_names": list(self.RecP_target_cols),
+                "data_set_divide": self.data_set_divide,
+                "optimal_tau": self.optimal_tau,
+                "optimal_X": self.optimal_X,
+                "optimal_loss": self.optimal_loss,
+                "transformer": self.transformer,
             }
             joblib.dump(bundle, os.path.join(output_directory, self.model_save_filename))
 
     def load_model(self, input_directory):
         try:
-            bundle = joblib.load(
-                os.path.join(input_directory, self.model_save_filename)
-            )
+            bundle = joblib.load(os.path.join(input_directory, self.model_save_filename))
             if isinstance(bundle, dict):
-                self.pipeline = bundle['pipeline']
-                self.RecP_feature_cols = bundle['feature_names']
-                self.RecP_target_cols = bundle['target_names']
-                self.data_set_divide = bundle['data_set_divide']
-                self.optimal_tau = bundle['optimal_tau']
-                self.optimal_X = bundle['optimal_X']
-                self.optimal_loss = bundle['optimal_loss']
+                self.pipeline = bundle["pipeline"]
+                self.RecP_feature_cols = bundle["feature_names"]
+                self.RecP_target_cols = bundle["target_names"]
+                self.data_set_divide = bundle["data_set_divide"]
+                self.optimal_tau = bundle["optimal_tau"]
+                self.optimal_X = bundle["optimal_X"]
+                self.optimal_loss = bundle["optimal_loss"]
                 self.fractions = self.pipeline.fractions_
-                self.transformer = bundle['transformer']
+                self.transformer = bundle["transformer"]
             else:
                 self.pipeline = bundle
         except Exception as e:
             print(f"Error loading model: {e}")
 
     def model_summary(self, model, X_test, Y_test, analysis_output_filedir):
-        from sklearn.metrics import r2_score, mean_squared_error
+        from sklearn.metrics import mean_squared_error, r2_score
 
         Y_pred = model.predict_raw(X_test)
-        recall_cols = [c for c in self.RecP_target_cols if c.startswith('index_recall_')]
+        recall_cols = [c for c in self.RecP_target_cols if c.startswith("index_recall_")]
         if recall_cols:
             Y_test_recall = Y_test[recall_cols].values
             sample_max = Y_test_recall.max(axis=1, keepdims=True)
             sample_max = np.maximum(sample_max, 1e-6)
             Y_test_norm = Y_test_recall / sample_max
-            Y_pred_recall = Y_pred[:, [i for i, n in enumerate(
-                model.target_names_) if n.startswith('index_recall_')]]
-            r2 = r2_score(Y_test_norm, Y_pred_recall, multioutput='uniform_average')
-            mse = mean_squared_error(Y_test_norm, Y_pred_recall, multioutput='uniform_average')
+            Y_pred_recall = Y_pred[:, [i for i, n in enumerate(model.target_names_) if n.startswith("index_recall_")]]
+            r2 = r2_score(Y_test_norm, Y_pred_recall, multioutput="uniform_average")
+            mse = mean_squared_error(Y_test_norm, Y_pred_recall, multioutput="uniform_average")
         else:
-            r2 = r2_score(Y_test, Y_pred, multioutput='uniform_average')
-            mse = mean_squared_error(Y_test, Y_pred, multioutput='uniform_average')
+            r2 = r2_score(Y_test, Y_pred, multioutput="uniform_average")
+            mse = mean_squared_error(Y_test, Y_pred, multioutput="uniform_average")
 
         print(f"GPCLF model_summary R² = {r2:.3f}, MSE = {mse:.3f} (normalised recall)")
         if self.optimal_tau is not None:
@@ -1486,47 +1561,59 @@ class GPCLFRecallModeller(RecallModeller):
             n_div = self.data_set_divide
             tau = self.optimal_tau or 0.9
 
-            actual_recalls = np.array([
-                actual_recall_at_fraction(y_recall[:, s], y_pred_frac[s], n_div, self.fractions)
-                for s in range(n_test)
-            ])
+            actual_recalls = np.array(
+                [
+                    actual_recall_at_fraction(y_recall[:, s], y_pred_frac[s], n_div, self.fractions)
+                    for s in range(n_test)
+                ]
+            )
 
             frac_below_tau = (actual_recalls < tau).mean()
 
-            y_true_frac = np.array([
-                compute_ground_truth_division(y_recall[:, s], tau, n_div, self.fractions)
-                for s in range(n_test)
-            ])
+            y_true_frac = np.array(
+                [compute_ground_truth_division(y_recall[:, s], tau, n_div, self.fractions) for s in range(n_test)]
+            )
             test_loss = asymmetric_loss(y_true_frac, y_pred_frac, over_cost=3, under_cost=1)
 
-            print(f"  True recall at predicted cutoff: mean={actual_recalls.mean():.3f}, "
-                  f"median={np.median(actual_recalls):.3f}, std={actual_recalls.std():.3f}")
+            print(
+                f"  True recall at predicted cutoff: mean={actual_recalls.mean():.3f}, "
+                f"median={np.median(actual_recalls):.3f}, std={actual_recalls.std():.3f}"
+            )
             print(f"  % below τ={tau:.3f}: {frac_below_tau:.1%}")
             print(f"  Test loss (3:1) = {test_loss:.4f}")
 
-        output_path = os.path.join(analysis_output_filedir, 'recall_model_analysis_results.txt')
-        with open(output_path, 'w') as f:
+        output_path = os.path.join(analysis_output_filedir, "recall_model_analysis_results.txt")
+        with open(output_path, "w") as f:
             f.write(f"GP-CLF Recall Model\nR² = {r2:.4f}\nMSE = {mse:.4f}\n")
             if self.optimal_tau is not None:
-                f.write(f"Optimal τ = {self.optimal_tau:.4f}\n"
-                        f"Optimal X = {self.optimal_X:.4f}\n"
-                        f"Optimal loss (3:1) = {self.optimal_loss:.4f}\n")
+                f.write(
+                    f"Optimal τ = {self.optimal_tau:.4f}\n"
+                    f"Optimal X = {self.optimal_X:.4f}\n"
+                    f"Optimal loss (3:1) = {self.optimal_loss:.4f}\n"
+                )
             if recall_cols:
-                f.write(f"True recall at predicted cutoff (test set):\n"
-                        f"  mean = {actual_recalls.mean():.4f}\n"
-                        f"  median = {np.median(actual_recalls):.4f}\n"
-                        f"  std = {actual_recalls.std():.4f}\n"
-                        f"  min = {actual_recalls.min():.4f}\n"
-                        f"  % below τ={tau:.3f} = {frac_below_tau:.1%}\n"
-                        f"  Test asymmetric loss (3:1) = {test_loss:.4f}\n")
-        return {'r2': r2, 'mse': mse, 'test_loss': test_loss,
-                'recall_at_cutoff_mean': float(actual_recalls.mean()),
-                'recall_at_cutoff_below_tau': float(frac_below_tau)}, {}
+                f.write(
+                    f"True recall at predicted cutoff (test set):\n"
+                    f"  mean = {actual_recalls.mean():.4f}\n"
+                    f"  median = {np.median(actual_recalls):.4f}\n"
+                    f"  std = {actual_recalls.std():.4f}\n"
+                    f"  min = {actual_recalls.min():.4f}\n"
+                    f"  % below τ={tau:.3f} = {frac_below_tau:.1%}\n"
+                    f"  Test asymmetric loss (3:1) = {test_loss:.4f}\n"
+                )
+        return {
+            "r2": r2,
+            "mse": mse,
+            "test_loss": test_loss,
+            "recall_at_cutoff_mean": float(actual_recalls.mean()),
+            "recall_at_cutoff_below_tau": float(frac_below_tau),
+        }, {}
 
     def plot_diagnostics(self, output_dir):
         """Generate diagnostic plots: recall landscape, calibration, actual-recall-at-index."""
         import matplotlib
-        matplotlib.use('Agg')
+
+        matplotlib.use("Agg")
         import matplotlib.pyplot as plt
         import seaborn as sns
 
@@ -1534,10 +1621,10 @@ class GPCLFRecallModeller(RecallModeller):
             print("No test data available for diagnostics plots")
             return
 
-        sns.set_style('whitegrid')
-        plt.rcParams['figure.dpi'] = 120
+        sns.set_style("whitegrid")
+        plt.rcParams["figure.dpi"] = 120
 
-        recall_cols = [c for c in self.RecP_target_cols if c.startswith('index_recall_')]
+        recall_cols = [c for c in self.RecP_target_cols if c.startswith("index_recall_")]
         y_recall = self.y_test[recall_cols].values.T
         n_test = y_recall.shape[1]
         n_div = self.data_set_divide
@@ -1545,7 +1632,7 @@ class GPCLFRecallModeller(RecallModeller):
         # Posterior predictions on test set
         means, stds = self.pipeline._predict_all(
             self.pipeline.scaler_.transform(
-                self.X_test.values if hasattr(self.X_test, 'values') else np.asarray(self.X_test)
+                self.X_test.values if hasattr(self.X_test, "values") else np.asarray(self.X_test)
             )
         )
         tau = self.optimal_tau or 0.9
@@ -1560,29 +1647,33 @@ class GPCLFRecallModeller(RecallModeller):
             probs[d, :] = 1.0 - norm.cdf(tau, loc=mu, scale=sigma)
 
         y_pred = predict_division_clf(probs, x_thresh, self.fractions)
-        y_true = np.array([
-            compute_ground_truth_division(y_recall[:, s], tau, n_div, self.fractions)
-            for s in range(n_test)
-        ])
+        y_true = np.array(
+            [compute_ground_truth_division(y_recall[:, s], tau, n_div, self.fractions) for s in range(n_test)]
+        )
 
         # —— 1. Recall landscape ——
         fig, ax = plt.subplots(figsize=(12, 5))
         bp_data = [y_recall[d, :] for d in range(n_div)]
-        ax.boxplot(bp_data, positions=range(1, n_div + 1), widths=0.6, patch_artist=True,
-                   boxprops=dict(facecolor='lightblue', alpha=0.7),
-                   medianprops=dict(color='red', lw=2))
+        ax.boxplot(
+            bp_data,
+            positions=range(1, n_div + 1),
+            widths=0.6,
+            patch_artist=True,
+            boxprops=dict(facecolor="lightblue", alpha=0.7),
+            medianprops=dict(color="red", lw=2),
+        )
         means_line = [np.mean(y_recall[d, :]) for d in range(n_div)]
-        ax.plot(range(1, n_div + 1), means_line, 'ko-', lw=2, markersize=5, label='Mean recall')
-        ax.axhline(tau, color='green', ls='--', lw=1.5, label=f'τ = {tau}')
-        ax.set_xlabel('Division')
-        ax.set_ylabel('Recall')
-        ax.set_title('Recall landscape (test set)')
+        ax.plot(range(1, n_div + 1), means_line, "ko-", lw=2, markersize=5, label="Mean recall")
+        ax.axhline(tau, color="green", ls="--", lw=1.5, label=f"τ = {tau}")
+        ax.set_xlabel("Division")
+        ax.set_ylabel("Recall")
+        ax.set_title("Recall landscape (test set)")
         ax.set_xticks(range(1, n_div + 1))
-        ax.set_xticklabels([f'{i}\n({self.fractions[i-1]:.0%})' for i in range(1, n_div + 1)], fontsize=7)
+        ax.set_xticklabels([f"{i}\n({self.fractions[i - 1]:.0%})" for i in range(1, n_div + 1)], fontsize=7)
         ax.legend(fontsize=9)
-        ax.grid(True, alpha=0.3, axis='y')
+        ax.grid(True, alpha=0.3, axis="y")
         plt.tight_layout()
-        fig.savefig(os.path.join(output_dir, 'recall_landscape.png'), dpi=120, bbox_inches='tight')
+        fig.savefig(os.path.join(output_dir, "recall_landscape.png"), dpi=120, bbox_inches="tight")
         plt.close(fig)
         print("  Saved recall_landscape.png")
 
@@ -1590,69 +1681,72 @@ class GPCLFRecallModeller(RecallModeller):
         fig, axes = plt.subplots(1, 2, figsize=(12, 5))
         ax = axes[0]
         over, under = y_pred > y_true, y_pred <= y_true
-        ax.scatter(y_true[over], y_pred[over], c='red', alpha=0.5, s=20, label=f'Over ({over.sum()})')
-        ax.scatter(y_true[under], y_pred[under], c='blue', alpha=0.5, s=20, label=f'Under ({under.sum()})')
-        ax.plot([0, 1], [0, 1], 'k--', lw=1, alpha=0.5)
-        ax.set_xlabel('True fraction')
-        ax.set_ylabel('Predicted fraction')
-        ax.set_title(f'GP-CLF (τ={tau:.2f}, X={x_thresh:.2f})')
+        ax.scatter(y_true[over], y_pred[over], c="red", alpha=0.5, s=20, label=f"Over ({over.sum()})")
+        ax.scatter(y_true[under], y_pred[under], c="blue", alpha=0.5, s=20, label=f"Under ({under.sum()})")
+        ax.plot([0, 1], [0, 1], "k--", lw=1, alpha=0.5)
+        ax.set_xlabel("True fraction")
+        ax.set_ylabel("Predicted fraction")
+        ax.set_title(f"GP-CLF (τ={tau:.2f}, X={x_thresh:.2f})")
         ax.legend(fontsize=8)
         ax.grid(True, alpha=0.3)
-        ax.set_aspect('equal')
+        ax.set_aspect("equal")
 
         ax = axes[1]
         errors = y_pred - y_true
-        ax.hist(errors, bins=30, alpha=0.7, color='gray', edgecolor='black')
-        ax.axvline(0, color='black', ls='--', lw=1)
-        ax.axvline(np.median(errors), color='red', ls='-', lw=1.5, label=f'Median: {np.median(errors):.3f}')
-        ax.set_xlabel('Predicted − True')
-        ax.set_ylabel('Count')
+        ax.hist(errors, bins=30, alpha=0.7, color="gray", edgecolor="black")
+        ax.axvline(0, color="black", ls="--", lw=1)
+        ax.axvline(np.median(errors), color="red", ls="-", lw=1.5, label=f"Median: {np.median(errors):.3f}")
+        ax.set_xlabel("Predicted − True")
+        ax.set_ylabel("Count")
         loss_val = self.optimal_loss if self.optimal_loss is not None else asymmetric_loss(y_true, y_pred)
-        ax.set_title(f'Error distribution (loss={loss_val:.4f})')
+        ax.set_title(f"Error distribution (loss={loss_val:.4f})")
         ax.legend(fontsize=8)
         ax.grid(True, alpha=0.3)
         plt.tight_layout()
-        fig.savefig(os.path.join(output_dir, 'recall_calibration.png'), dpi=120, bbox_inches='tight')
+        fig.savefig(os.path.join(output_dir, "recall_calibration.png"), dpi=120, bbox_inches="tight")
         plt.close(fig)
         print("  Saved recall_calibration.png")
 
         # —— 3. Actual recall at predicted index ——
-        actual_recalls = np.array([
-            actual_recall_at_fraction(y_recall[:, s], y_pred[s], n_div, self.fractions)
-            for s in range(n_test)
-        ])
+        actual_recalls = np.array(
+            [actual_recall_at_fraction(y_recall[:, s], y_pred[s], n_div, self.fractions) for s in range(n_test)]
+        )
 
         fig, axes = plt.subplots(1, 2, figsize=(13, 5))
         ax = axes[0]
-        ax.hist(actual_recalls, bins=25, alpha=0.7, color='steelblue', edgecolor='black', density=True)
-        ax.axvline(tau, color='red', ls='--', lw=2, label=f'τ = {tau}')
-        ax.axvline(np.mean(actual_recalls), color='darkorange', ls='-', lw=2, label=f'Mean = {np.mean(actual_recalls):.3f}')
-        ax.axvline(np.median(actual_recalls), color='green', ls=':', lw=2, label=f'Median = {np.median(actual_recalls):.3f}')
-        ax.set_xlabel('Actual recall at predicted last-index')
-        ax.set_ylabel('Density')
-        ax.set_title(f'GP-CLF (τ={tau:.2f}, X={x_thresh:.2f})')
+        ax.hist(actual_recalls, bins=25, alpha=0.7, color="steelblue", edgecolor="black", density=True)
+        ax.axvline(tau, color="red", ls="--", lw=2, label=f"τ = {tau}")
+        ax.axvline(
+            np.mean(actual_recalls), color="darkorange", ls="-", lw=2, label=f"Mean = {np.mean(actual_recalls):.3f}"
+        )
+        ax.axvline(
+            np.median(actual_recalls), color="green", ls=":", lw=2, label=f"Median = {np.median(actual_recalls):.3f}"
+        )
+        ax.set_xlabel("Actual recall at predicted last-index")
+        ax.set_ylabel("Density")
+        ax.set_title(f"GP-CLF (τ={tau:.2f}, X={x_thresh:.2f})")
         ax.legend(fontsize=8)
-        ax.grid(True, alpha=0.3, axis='y')
+        ax.grid(True, alpha=0.3, axis="y")
 
         ax = axes[1]
         n_show = min(50, n_test)
         rng = np.random.RandomState(42)
         sample_idxs = rng.choice(n_test, n_show, replace=False)
         for s in sample_idxs:
-            ax.plot(self.fractions, y_recall[:, s], color='grey', alpha=0.15, lw=0.5)
-        ax.plot(self.fractions, means_line, 'k-', lw=2, label='Mean recall')
+            ax.plot(self.fractions, y_recall[:, s], color="grey", alpha=0.15, lw=0.5)
+        ax.plot(self.fractions, means_line, "k-", lw=2, label="Mean recall")
         jitter = rng.uniform(-0.01, 0.01, n_test)
         for s in range(n_test):
-            color = 'red' if actual_recalls[s] < tau else 'blue'
-            ax.scatter(y_pred[s] + jitter[s], actual_recalls[s], c=color, alpha=0.4, s=8, edgecolors='none')
-        ax.axhline(tau, color='red', ls='--', lw=1.5)
-        ax.set_xlabel('Predicted last-index (fraction)')
-        ax.set_ylabel('Actual recall at that index')
-        ax.set_title('Readout: predicted vs actual recall')
+            color = "red" if actual_recalls[s] < tau else "blue"
+            ax.scatter(y_pred[s] + jitter[s], actual_recalls[s], c=color, alpha=0.4, s=8, edgecolors="none")
+        ax.axhline(tau, color="red", ls="--", lw=1.5)
+        ax.set_xlabel("Predicted last-index (fraction)")
+        ax.set_ylabel("Actual recall at that index")
+        ax.set_title("Readout: predicted vs actual recall")
         ax.legend(fontsize=8)
         ax.grid(True, alpha=0.3)
         plt.tight_layout()
-        fig.savefig(os.path.join(output_dir, 'recall_actual_at_index.png'), dpi=120, bbox_inches='tight')
+        fig.savefig(os.path.join(output_dir, "recall_actual_at_index.png"), dpi=120, bbox_inches="tight")
         plt.close(fig)
         print("  Saved recall_actual_at_index.png")
 
@@ -1672,6 +1766,7 @@ def find_recall_for_target(
             return recall_at_percentile
     return 1.0
 
+
 def find_percentile_for_recall(
     recall_pred_row: pd.Series,
     data_set_divide: int,
@@ -1687,22 +1782,23 @@ def find_percentile_for_recall(
             return i / data_set_divide
     return 1.0
 
+
 def cut_off_recall_prediction(
     study_output_filepath: Path,
     data_set_name: str,
-    modeller: Union[RecallModeller, CutoffRecallModeller],
+    modeller: RecallModeller | CutoffRecallModeller,
     data_set_divide: int,
     m_stats_stats_matrix: pd.DataFrame,
     taxids_to_use: pd.DataFrame,
-    tax_level: str = 'order',
+    tax_level: str = "order",
     target_recall: float = 1.0,
-    confidence: Optional[float] = None,
+    confidence: float | None = None,
 ) -> tuple[OverlapManager, dict]:
     """
     Predict recall at various cutoffs and filter leaves based on threshold.
-    
+
     Works with both RecallModeller (per-bin) and CutoffRecallModeller (direct cutoff).
-    
+
     Args:
         study_output_filepath: Path to study output directory.
         data_set_name: Name of the dataset.
@@ -1713,13 +1809,11 @@ def cut_off_recall_prediction(
         tax_level: Taxonomic level for analysis.
         target_recall: Target recall threshold.
         confidence: Confidence level for prob-guided cutoff (CutoffRecallModeller only).
-    
+
     Returns:
         Tuple of (OverlapManager, metrics dict).
     """
-    target_percentile = modeller.predict_cutoff(
-        m_stats_stats_matrix, target_recall, confidence
-    )
+    target_percentile = modeller.predict_cutoff(m_stats_stats_matrix, target_recall, confidence)
 
     print("##############################################")
     print(f"cut_off_recall_prediction: target_percentile={target_percentile:.4f}")
@@ -1732,18 +1826,17 @@ def cut_off_recall_prediction(
         keep_index = 1
 
     original_matrix = m_stats_stats_matrix.copy()
-    total_with_coverage = (original_matrix['coverage'] > 0).sum()
+    total_with_coverage = (original_matrix["coverage"] > 0).sum()
     kept_matrix = original_matrix.head(keep_index)
-    kept_with_coverage = (kept_matrix['coverage'] > 0).sum() if not kept_matrix.empty else 0
+    kept_with_coverage = (kept_matrix["coverage"] > 0).sum() if not kept_matrix.empty else 0
     filtered_with_coverage = total_with_coverage - kept_with_coverage
 
     prop_coverage_above = kept_with_coverage / total_with_coverage if total_with_coverage > 0 else 0
     prop_coverage_below = filtered_with_coverage / total_with_coverage if total_with_coverage > 0 else 0
     resulting_percentile = keep_index / original_matrix.shape[0] if original_matrix.shape[0] > 0 else 0
-    
+
     overlap_manager = OverlapManager(
-        os.path.join(study_output_filepath, f"{data_set_name}", "clustering"),
-        max_proportion=target_percentile
+        os.path.join(study_output_filepath, f"{data_set_name}", "clustering"), max_proportion=target_percentile
     )
 
     metrics = {
@@ -1753,10 +1846,10 @@ def cut_off_recall_prediction(
         "prop_coverage_above_cutoff": prop_coverage_above,
         "prop_coverage_below_cutoff": prop_coverage_below,
     }
-    
+
     eval_metrics = modeller.evaluate_prediction(m_stats_stats_matrix, target_recall)
     metrics.update(eval_metrics)
-    
+
     return overlap_manager, metrics
 
 
@@ -1764,8 +1857,8 @@ def cut_off_recall_prediction(
 ################ NCBI TAXONOMIST UTILITIES ###########################################
 ######################################################################################
 
-class ScalerProxy(StandardScaler):
 
+class ScalerProxy(StandardScaler):
     def __init__(self):
         super().__init__()
 
@@ -1787,15 +1880,17 @@ class ClusteringPipeline(BaseEstimator, ClassifierMixin):
     CompositionModeller.xgbc_model_bayes_optimized().
     """
 
-    def __init__(self,
-                 numeric_cols=None,
-                 taxon_cols=None,
-                 feature_names=None,
-                 scale_pos_weight='auto',
-                 optuna_trials=50,
-                 use_optuna=True,
-                 random_state=42,
-                 xgb_params=None):
+    def __init__(
+        self,
+        numeric_cols=None,
+        taxon_cols=None,
+        feature_names=None,
+        scale_pos_weight="auto",
+        optuna_trials=50,
+        use_optuna=True,
+        random_state=42,
+        xgb_params=None,
+    ):
         self.numeric_cols = numeric_cols or []
         self.taxon_cols = taxon_cols or []
         self.feature_names = feature_names
@@ -1805,7 +1900,7 @@ class ClusteringPipeline(BaseEstimator, ClassifierMixin):
         self.random_state = random_state
         self.xgb_params = xgb_params or {}
 
-    def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.Series, np.ndarray]):
+    def fit(self, X: pd.DataFrame | np.ndarray, y: pd.Series | np.ndarray):
         if isinstance(X, pd.DataFrame):
             self.feature_names_ = X.columns.tolist()
             self.n_features_in_ = X.shape[1]
@@ -1813,9 +1908,9 @@ class ClusteringPipeline(BaseEstimator, ClassifierMixin):
             self.feature_names_ = self.feature_names
             self.n_features_in_ = X.shape[1] if X.ndim == 2 else 1
 
-        if self.scale_pos_weight == 'auto':
-            n_neg = (y == 0).sum() 
-            n_pos = (y == 1).sum() 
+        if self.scale_pos_weight == "auto":
+            n_neg = (y == 0).sum()
+            n_pos = (y == 1).sum()
             pos_weight = n_neg / max(n_pos, 1)
         else:
             pos_weight = self.scale_pos_weight
@@ -1841,7 +1936,7 @@ class ClusteringPipeline(BaseEstimator, ClassifierMixin):
                 scale_pos_weight=pos_weight,
                 random_state=self.random_state,
                 use_label_encoder=False,
-                eval_metric='logloss',
+                eval_metric="logloss",
                 **self.xgb_params,
             )
             self.classifier_.fit(X_scaled, y)
@@ -1850,7 +1945,7 @@ class ClusteringPipeline(BaseEstimator, ClassifierMixin):
 
     def _train_with_optuna(self, X, y, pos_weight):
         import optuna
-        from sklearn.model_selection import cross_val_score, StratifiedKFold
+        from sklearn.model_selection import StratifiedKFold, cross_val_score
 
         def objective(trial):
             params = {
@@ -1884,12 +1979,12 @@ class ClusteringPipeline(BaseEstimator, ClassifierMixin):
 
     def predict(self, X):
         X_scaled = self._scale(X)
-        clf = getattr(self, 'classifier_', None) or getattr(self, 'model', None)
+        clf = getattr(self, "classifier_", None) or getattr(self, "model", None)
         return clf.predict(X_scaled)
 
     def predict_proba(self, X):
         X_scaled = self._scale(X)
-        clf = getattr(self, 'classifier_', None) or getattr(self, 'model', None)
+        clf = getattr(self, "classifier_", None) or getattr(self, "model", None)
         return clf.predict_proba(X_scaled)
 
     def _scale(self, X):
@@ -1897,7 +1992,7 @@ class ClusteringPipeline(BaseEstimator, ClassifierMixin):
         if X.ndim == 1:
             X = X.reshape(1, -1)
         n_num = len(self.numeric_cols)
-        scaler = getattr(self, 'scaler_', None) or getattr(self, 'scaler', None)
+        scaler = getattr(self, "scaler_", None) or getattr(self, "scaler", None)
         if scaler is None:
             return X
         if n_num > 0:
@@ -1906,14 +2001,14 @@ class ClusteringPipeline(BaseEstimator, ClassifierMixin):
 
     def get_params(self, deep=True):
         return {
-            'numeric_cols': self.numeric_cols,
-            'taxon_cols': self.taxon_cols,
-            'feature_names': self.feature_names,
-            'scale_pos_weight': self.scale_pos_weight,
-            'optuna_trials': self.optuna_trials,
-            'use_optuna': self.use_optuna,
-            'random_state': self.random_state,
-            'xgb_params': self.xgb_params,
+            "numeric_cols": self.numeric_cols,
+            "taxon_cols": self.taxon_cols,
+            "feature_names": self.feature_names,
+            "scale_pos_weight": self.scale_pos_weight,
+            "optuna_trials": self.optuna_trials,
+            "use_optuna": self.use_optuna,
+            "random_state": self.random_state,
+            "xgb_params": self.xgb_params,
         }
 
     def set_params(self, **params):
@@ -1924,10 +2019,17 @@ class ClusteringPipeline(BaseEstimator, ClassifierMixin):
 
 from abc import ABC, abstractmethod
 
-
-STATS_COLS = ['n_leaves', 'tax_diversity', 'Min_Dist', 'Min_Shared']
-DROPPED_COLS = ['data_set', 'node', 'n_true_leaves', 'precision_increased',
-                'new_precision', 'precision', 'stop_traversal', 'unclassified']
+STATS_COLS = ["n_leaves", "tax_diversity", "Min_Dist", "Min_Shared"]
+DROPPED_COLS = [
+    "data_set",
+    "node",
+    "n_true_leaves",
+    "precision_increased",
+    "new_precision",
+    "precision",
+    "stop_traversal",
+    "unclassified",
+]
 
 
 class BaseCompositionModeller(ABC):
@@ -1940,7 +2042,7 @@ class BaseCompositionModeller(ABC):
     model_save_filename: str = "composition_bundle.pkl"
 
     def __init__(self):
-        self.pipeline: Optional[Union[BaseEstimator, Pipeline]] = None
+        self.pipeline: BaseEstimator | Pipeline | None = None
         self.X_train = None
         self.X_test = None
         self.y_train = None
@@ -1956,7 +2058,7 @@ class BaseCompositionModeller(ABC):
         self.y_train = y_train
         self.X_test = X_test
         self.y_test = y_test
-        self._feature_names = list(X_train.columns) if hasattr(X_train, 'columns') else None
+        self._feature_names = list(X_train.columns) if hasattr(X_train, "columns") else None
         self.pipeline = self._build_pipeline(X_train, y_train)
         return self
 
@@ -2004,11 +2106,12 @@ class BaseCompositionModeller(ABC):
 
     def evaluate_model(self, X_test=None, y_test=None):
         from sklearn.metrics import classification_report, confusion_matrix
+
         X_test = X_test if X_test is not None else self.X_test
         y_test = y_test if y_test is not None else self.y_test
         if X_test is None or y_test is None:
             raise ValueError("X_test and y_test must be provided for evaluation.")
-        
+
         if self.pipeline is None:
             raise ValueError("Model pipeline is not fitted. Call fit() before evaluation.")
         y_pred = self.pipeline.predict(X_test)
@@ -2025,22 +2128,24 @@ class BaseCompositionModeller(ABC):
         """Build ColumnTransformer that scales stats cols, leaves tax cols raw."""
         from sklearn.compose import ColumnTransformer
         from sklearn.preprocessing import StandardScaler
+
         stats_cols = stats_cols or [c for c in STATS_COLS if c in X_train.columns]
         tax_cols = [c for c in X_train.columns if c not in stats_cols]
         transformers = []
         if stats_cols:
-            transformers.append(('scaler', StandardScaler() if scaler else 'passthrough', stats_cols))
+            transformers.append(("scaler", StandardScaler() if scaler else "passthrough", stats_cols))
         if tax_cols:
-            transformers.append(('passthrough', 'passthrough', tax_cols))
-        return ColumnTransformer(transformers, remainder='drop')
+            transformers.append(("passthrough", "passthrough", tax_cols))
+        return ColumnTransformer(transformers, remainder="drop")
 
     def plot_eval(self, output_directory):
         import matplotlib
-        matplotlib.use('Agg')
+
+        matplotlib.use("Agg")
         import matplotlib.pyplot as plt
 
         classifier = self._get_classifier()
-        if classifier is None or not hasattr(classifier, 'feature_importances_'):
+        if classifier is None or not hasattr(classifier, "feature_importances_"):
             return
 
         if self._feature_names is None:
@@ -2055,13 +2160,14 @@ class BaseCompositionModeller(ABC):
 
     def shap_eval_plot(self, output_directory):
         try:
-            import shap
             import matplotlib
-            matplotlib.use('Agg')
+            import shap
+
+            matplotlib.use("Agg")
             import matplotlib.pyplot as plt
 
             classifier = self._get_classifier()
-            if classifier is None or not hasattr(classifier, 'feature_importances_'):
+            if classifier is None or not hasattr(classifier, "feature_importances_"):
                 return
             if self.X_train is None or self.X_test is None:
                 return
@@ -2088,15 +2194,16 @@ class BaseCompositionModeller(ABC):
 
     def shap_interaction_plot(self, output_directory):
         try:
-            import shap
             import matplotlib
-            matplotlib.use('Agg')
+            import shap
+
+            matplotlib.use("Agg")
             import matplotlib.pyplot as plt
             import numpy as np
             import seaborn as sns
 
             classifier = self._get_classifier()
-            if classifier is None or not hasattr(classifier, 'feature_importances_'):
+            if classifier is None or not hasattr(classifier, "feature_importances_"):
                 return
             if self.X_train is None or self.X_test is None:
                 return
@@ -2109,22 +2216,21 @@ class BaseCompositionModeller(ABC):
                 index=self.X_train.columns,
                 columns=self.X_train.columns,
             )
-            interaction_df = interaction_df.where(
-                np.tril(np.ones(interaction_df.shape), k=-1).astype(bool)
-            )
+            interaction_df = interaction_df.where(np.tril(np.ones(interaction_df.shape), k=-1).astype(bool))
             plt.figure(figsize=(10, 8))
             sns.heatmap(interaction_df, cmap="viridis")
             plt.title("Mean absolute SHAP interaction values")
             plt.savefig(os.path.join(output_directory, "shap_interaction_heatmap.png"))
             plt.close()
 
-            from scipy.cluster.hierarchy import linkage, dendrogram
-            dist_df = interaction_df.drop(columns=STATS_COLS, index=STATS_COLS, errors='ignore')
+            from scipy.cluster.hierarchy import dendrogram, linkage
+
+            dist_df = interaction_df.drop(columns=STATS_COLS, index=STATS_COLS, errors="ignore")
             np.fill_diagonal(dist_df.values, 0)
             dist_df = dist_df.fillna(0)
-            Z = linkage(dist_df, method='average')
+            Z = linkage(dist_df, method="average")
             plt.figure(figsize=(6, 7))
-            dendrogram(Z, labels=dist_df.index, orientation='left', leaf_rotation=0)
+            dendrogram(Z, labels=dist_df.index, orientation="left", leaf_rotation=0)
             plt.title("Feature Clustering based on SHAP Interaction Values")
             plt.tight_layout()
             plt.savefig(os.path.join(output_directory, "shap_interaction_dendrogram.png"))
@@ -2143,14 +2249,14 @@ class BaseCompositionModeller(ABC):
         self.shap_interaction_plot(output_directory)
         return report, cm
 
-    def _get_classifier(self) -> Optional[Union[BaseEstimator, Pipeline]]:
+    def _get_classifier(self) -> BaseEstimator | Pipeline | None:
         """Return the inner classifier from the pipeline."""
         if self.pipeline is None:
             return None
-        if hasattr(self.pipeline, 'classifier_'):
+        if hasattr(self.pipeline, "classifier_"):
             return self.pipeline.classifier_
-        if hasattr(self.pipeline, 'named_steps'):
-            return self.pipeline[-1] if hasattr(self.pipeline[-1], 'predict') else self.pipeline
+        if hasattr(self.pipeline, "named_steps"):
+            return self.pipeline[-1] if hasattr(self.pipeline[-1], "predict") else self.pipeline
         return self.pipeline
 
 
@@ -2159,8 +2265,9 @@ class XGBCompositionModeller(BaseCompositionModeller):
 
     model_save_filename = "composition_xgb_bundle.pkl"
 
-    def __init__(self, n_estimators=300, max_depth=6, learning_rate=0.1,
-                 subsample=0.8, colsample_bytree=0.8, random_state=42):
+    def __init__(
+        self, n_estimators=300, max_depth=6, learning_rate=0.1, subsample=0.8, colsample_bytree=0.8, random_state=42
+    ):
         super().__init__()
         self.n_estimators = n_estimators
         self.max_depth = max_depth
@@ -2172,19 +2279,24 @@ class XGBCompositionModeller(BaseCompositionModeller):
     def _build_pipeline(self, X_train, y_train) -> Pipeline:
         pos_weight = self._pos_weight(y_train)
         ct = self._make_column_transformer(X_train)
-        return Pipeline([
-            ('preprocessor', ct),
-            ('classifier', XGBClassifier(
-                n_estimators=self.n_estimators,
-                max_depth=self.max_depth,
-                learning_rate=self.learning_rate,
-                subsample=self.subsample,
-                colsample_bytree=self.colsample_bytree,
-                scale_pos_weight=pos_weight,
-                random_state=self.random_state,
-                eval_metric='logloss',
-            )),
-        ]).fit(X_train, y_train)
+        return Pipeline(
+            [
+                ("preprocessor", ct),
+                (
+                    "classifier",
+                    XGBClassifier(
+                        n_estimators=self.n_estimators,
+                        max_depth=self.max_depth,
+                        learning_rate=self.learning_rate,
+                        subsample=self.subsample,
+                        colsample_bytree=self.colsample_bytree,
+                        scale_pos_weight=pos_weight,
+                        random_state=self.random_state,
+                        eval_metric="logloss",
+                    ),
+                ),
+            ]
+        ).fit(X_train, y_train)
 
 
 class OptunaXGBCompositionModeller(BaseCompositionModeller):
@@ -2228,18 +2340,24 @@ class RFCompositionModeller(BaseCompositionModeller):
 
     def _build_pipeline(self, X_train, y_train):
         from sklearn.pipeline import Pipeline
+
         ct = self._make_column_transformer(X_train)
-        return Pipeline([
-            ('preprocessor', ct),
-            ('classifier', RandomForestClassifier(
-                n_estimators=self.n_estimators,
-                max_depth=self.max_depth,
-                min_samples_leaf=self.min_samples_leaf,
-                class_weight='balanced',
-                random_state=self.random_state,
-                n_jobs=-1,
-            )),
-        ]).fit(X_train, y_train)
+        return Pipeline(
+            [
+                ("preprocessor", ct),
+                (
+                    "classifier",
+                    RandomForestClassifier(
+                        n_estimators=self.n_estimators,
+                        max_depth=self.max_depth,
+                        min_samples_leaf=self.min_samples_leaf,
+                        class_weight="balanced",
+                        random_state=self.random_state,
+                        n_jobs=-1,
+                    ),
+                ),
+            ]
+        ).fit(X_train, y_train)
 
 
 class GBCompositionModeller(BaseCompositionModeller):
@@ -2247,8 +2365,7 @@ class GBCompositionModeller(BaseCompositionModeller):
 
     model_save_filename = "composition_gb_bundle.pkl"
 
-    def __init__(self, n_estimators=300, max_depth=5, learning_rate=0.1,
-                 subsample=0.8, random_state=42):
+    def __init__(self, n_estimators=300, max_depth=5, learning_rate=0.1, subsample=0.8, random_state=42):
         super().__init__()
         self.n_estimators = n_estimators
         self.max_depth = max_depth
@@ -2257,19 +2374,25 @@ class GBCompositionModeller(BaseCompositionModeller):
         self.random_state = random_state
 
     def _build_pipeline(self, X_train, y_train):
-        from sklearn.pipeline import Pipeline
         from sklearn.ensemble import GradientBoostingClassifier
+        from sklearn.pipeline import Pipeline
+
         ct = self._make_column_transformer(X_train)
-        return Pipeline([
-            ('preprocessor', ct),
-            ('classifier', GradientBoostingClassifier(
-                n_estimators=self.n_estimators,
-                max_depth=self.max_depth,
-                learning_rate=self.learning_rate,
-                subsample=self.subsample,
-                random_state=self.random_state,
-            )),
-        ]).fit(X_train, y_train)
+        return Pipeline(
+            [
+                ("preprocessor", ct),
+                (
+                    "classifier",
+                    GradientBoostingClassifier(
+                        n_estimators=self.n_estimators,
+                        max_depth=self.max_depth,
+                        learning_rate=self.learning_rate,
+                        subsample=self.subsample,
+                        random_state=self.random_state,
+                    ),
+                ),
+            ]
+        ).fit(X_train, y_train)
 
 
 class LRCompositionModeller(BaseCompositionModeller):
@@ -2284,34 +2407,47 @@ class LRCompositionModeller(BaseCompositionModeller):
         self.random_state = random_state
 
     def _build_pipeline(self, X_train, y_train):
-        from sklearn.pipeline import Pipeline
-        from sklearn.linear_model import LogisticRegression
         from sklearn.compose import ColumnTransformer
+        from sklearn.linear_model import LogisticRegression
+        from sklearn.pipeline import Pipeline
+
         stats_cols = [c for c in STATS_COLS if c in X_train.columns]
-        return Pipeline([
-            ('preprocessor', ColumnTransformer([
-                ('scaler', StandardScaler(), stats_cols),
-            ], remainder='drop')),
-            ('classifier', LogisticRegression(
-                C=self.C,
-                class_weight='balanced',
-                max_iter=self.max_iter,
-                random_state=self.random_state,
-            )),
-        ]).fit(X_train, y_train)
+        return Pipeline(
+            [
+                (
+                    "preprocessor",
+                    ColumnTransformer(
+                        [
+                            ("scaler", StandardScaler(), stats_cols),
+                        ],
+                        remainder="drop",
+                    ),
+                ),
+                (
+                    "classifier",
+                    LogisticRegression(
+                        C=self.C,
+                        class_weight="balanced",
+                        max_iter=self.max_iter,
+                        random_state=self.random_state,
+                    ),
+                ),
+            ]
+        ).fit(X_train, y_train)
 
     def plot_eval(self, output_directory):
         import matplotlib
-        matplotlib.use('Agg')
+
+        matplotlib.use("Agg")
         import matplotlib.pyplot as plt
         import numpy as np
 
         classifier = self._get_classifier()
-        if classifier is None or not hasattr(classifier, 'coef_'):
+        if classifier is None or not hasattr(classifier, "coef_"):
             return
 
         coef = classifier.coef_.flatten()
-        names = ['n_leaves', 'tax_diversity', 'Min_Dist', 'Min_Shared']
+        names = ["n_leaves", "tax_diversity", "Min_Dist", "Min_Shared"]
         pd.Series(np.abs(coef), index=names).sort_values().plot.barh(figsize=(7, 4))
         plt.title("Logistic Regression Coefficients (absolute)")
         plt.tight_layout()
@@ -2329,27 +2465,31 @@ class LRCompositionModeller(BaseCompositionModeller):
 ################ CROSS-HIT MODELLING ######################################################
 #######################################################################################
 
-class CrossHitModeller:
 
+class CrossHitModeller:
     model_save_filename = "cross_hit_xgb_bundle.pkl"
 
     def __init__(self, prediction_trainning_results_df):
         self.prediction_trainning_results_df = prediction_trainning_results_df
-        self.X = self.prediction_trainning_results_df.drop(columns=['leaf', 'is_trash'])
-        self.pred_stats_cols = ['coverage', 'covbases', 'meanmapq', 'error_rate', 'max_shared', 'total_uniq_reads']
-        self.y = self.prediction_trainning_results_df['is_trash'].astype(int)
+        self.X = self.prediction_trainning_results_df.drop(columns=["leaf", "is_trash"])
+        self.pred_stats_cols = ["coverage", "covbases", "meanmapq", "error_rate", "max_shared", "total_uniq_reads"]
+        self.y = self.prediction_trainning_results_df["is_trash"].astype(int)
         self.scaler = None
         self.pca = None
         self.model = None
 
     def split_data(self, test_size=0.2, random_state=42):
         from sklearn.model_selection import train_test_split
-        X_train, X_test, y_train, y_test = train_test_split(self.X, self.y, test_size=test_size, random_state=random_state)
+
+        X_train, X_test, y_train, y_test = train_test_split(
+            self.X, self.y, test_size=test_size, random_state=random_state
+        )
         return X_train, X_test, y_train, y_test
 
-    def prep_data(self, scale: bool= True, transform: bool = False):
+    def prep_data(self, scale: bool = True, transform: bool = False):
 
         from sklearn.preprocessing import StandardScaler
+
         X_train, X_test, y_train, y_test = self.split_data()
 
         if scale:
@@ -2357,10 +2497,10 @@ class CrossHitModeller:
             X_train[self.pred_stats_cols] = scaler.fit_transform(X_train[self.pred_stats_cols])
             X_test[self.pred_stats_cols] = scaler.transform(X_test[self.pred_stats_cols])
             self.scaler = scaler
-        
-        
+
         if transform:
             from sklearn.decomposition import PCA
+
             pca = PCA(n_components=0.95)
             X_train_pca = pca.fit_transform(X_train)
             X_test_pca = pca.transform(X_test)
@@ -2372,10 +2512,10 @@ class CrossHitModeller:
     def xgbc_model(self, X_train, y_train, **kwargs):
         from xgboost import XGBClassifier
 
-        model = XGBClassifier(use_label_encoder=False, eval_metric='logloss', **kwargs)
+        model = XGBClassifier(use_label_encoder=False, eval_metric="logloss", **kwargs)
         model.fit(X_train, y_train)
         return model
-    
+
     def train_model(self, optimized: bool = True, **kwargs):
         if optimized:
             return self.train_model_bayes_optimized()
@@ -2383,10 +2523,10 @@ class CrossHitModeller:
         model = self.xgbc_model(X_train, y_train, **kwargs)
         self.model = model
         return model, X_test, y_test
-    
+
     def train_model_bayes_optimized(self):
         import optuna
-        from sklearn.model_selection import cross_val_score, StratifiedKFold
+        from sklearn.model_selection import StratifiedKFold, cross_val_score
         from xgboost import XGBClassifier
 
         X_train, X_test, y_train, y_test = self.prep_data()
@@ -2405,7 +2545,7 @@ class CrossHitModeller:
                 "gamma": trial.suggest_float("gamma", 0, 5),
                 "min_child_weight": trial.suggest_int("min_child_weight", 1, 10),
                 "random_state": 42,
-                "n_jobs": -1
+                "n_jobs": -1,
             }
 
             model = XGBClassifier(**params)
@@ -2419,7 +2559,7 @@ class CrossHitModeller:
         # Refit model on full training data
         best_params = study.best_trial.params
         best_model = XGBClassifier(**best_params)
-    
+
         best_model.fit(X_train, y_train)
         self.model = best_model
         return best_model, X_test, y_test, study
@@ -2427,11 +2567,14 @@ class CrossHitModeller:
     def save_model(self, output_directory: str):
 
         if self.model is not None:
-            joblib.dump({
-                'model': self.model,
-                'scaler': self.scaler,
-                'pca': self.pca,
-            }, os.path.join(output_directory, self.model_save_filename))
+            joblib.dump(
+                {
+                    "model": self.model,
+                    "scaler": self.scaler,
+                    "pca": self.pca,
+                },
+                os.path.join(output_directory, self.model_save_filename),
+            )
         else:
             print("No model to save.")
 
@@ -2440,64 +2583,72 @@ class CrossHitModeller:
         try:
             bundle = joblib.load(os.path.join(input_directory, self.model_save_filename))
             if isinstance(bundle, dict):
-                self.model = bundle['model']
-                self.scaler = bundle.get('scaler')
-                self.pca = bundle.get('pca')
+                self.model = bundle["model"]
+                self.scaler = bundle.get("scaler")
+                self.pca = bundle.get("pca")
             else:
                 self.model = bundle
         except Exception as e:
-            print(f"Error loading model: {e}")  
+            print(f"Error loading model: {e}")
 
 
 ########################################################################################
 ################ TRAVERSAL ######################################################
 ########################################################################################
 
-def cross_hit_prediction(data_set_name, 
-                         study_output_filepath, 
-                         ncbi_wrapper, 
-                         modeller: CrossHitModeller,
-                         overlap_manager: OverlapManager, 
-                         tax_df, 
-                         tax_level: str = 'order'):
 
-    prediction_matrix = cross_hit_prediction_matrix(data_set_name, study_output_filepath, ncbi_wrapper, overlap_manager, tax_df, tax_level=tax_level)
-    
+def cross_hit_prediction(
+    data_set_name,
+    study_output_filepath,
+    ncbi_wrapper,
+    modeller: CrossHitModeller,
+    overlap_manager: OverlapManager,
+    tax_df,
+    tax_level: str = "order",
+):
+
+    prediction_matrix = cross_hit_prediction_matrix(
+        data_set_name, study_output_filepath, ncbi_wrapper, overlap_manager, tax_df, tax_level=tax_level
+    )
 
     if prediction_matrix.empty or len(overlap_manager.leaves) == 0:
-        return pd.DataFrame(columns=['leaf', 'is_trash', 'prob_best_match', 'pred_best_match'])
+        return pd.DataFrame(columns=["leaf", "is_trash", "prob_best_match", "pred_best_match"])
 
-    
-    X_pred = prediction_matrix.drop(columns=['leaf', 'is_trash'])
+    X_pred = prediction_matrix.drop(columns=["leaf", "is_trash"])
     pred_stats_cols = modeller.pred_stats_cols
-    
+
     if modeller.scaler is not None:
         X_pred_scaled = X_pred
         X_pred_scaled[modeller.pred_stats_cols] = modeller.scaler.transform(X_pred_scaled[modeller.pred_stats_cols])
     else:
         X_pred_scaled = X_pred
-    
+
     if modeller.pca is not None:
         X_pred_stats = X_pred_scaled[pred_stats_cols]
         X_pred_tax = X_pred_scaled.drop(columns=pred_stats_cols)
         X_pred_tax_pca = pd.DataFrame(modeller.pca.transform(X_pred_tax))
-        X_pred_tax_pca.columns = [f'pca_{i+1}' for i in range(X_pred_tax_pca.shape[1])]
+        X_pred_tax_pca.columns = [f"pca_{i + 1}" for i in range(X_pred_tax_pca.shape[1])]
         X_pred_scaled = pd.concat([X_pred_stats.reset_index(drop=True), X_pred_tax_pca.reset_index(drop=True)], axis=1)
-    
+
     if modeller.model is None:
         y_prob = np.zeros(X_pred_scaled.shape[0])
     else:
         y_prob = modeller.model.predict_proba(X_pred_scaled)[:, 1]
 
-    output = prediction_matrix[['leaf', 'is_trash']].copy()
-    output.loc[:, 'prob_best_match'] = y_prob
-    output.loc[:, 'pred_best_match'] = (y_prob > 0.5).astype(int)
+    output = prediction_matrix[["leaf", "is_trash"]].copy()
+    output.loc[:, "prob_best_match"] = y_prob
+    output.loc[:, "pred_best_match"] = (y_prob > 0.5).astype(int)
 
     return output
 
 
-
-def traversal_with_clustering_fixed(overlap_manager: OverlapManager, node: str, stats_matrix: pd.DataFrame, min_dist_threshold:float = 0.6, results = None) -> List[pd.DataFrame]:
+def traversal_with_clustering_fixed(
+    overlap_manager: OverlapManager,
+    node: str,
+    stats_matrix: pd.DataFrame,
+    min_dist_threshold: float = 0.6,
+    results=None,
+) -> list[pd.DataFrame]:
     """
     Recursive function.
     Traverse the tree, internal nodes only. At each node:
@@ -2506,7 +2657,7 @@ def traversal_with_clustering_fixed(overlap_manager: OverlapManager, node: str, 
     - extract node Min_Dist and Min_Shared
     - compute precision of split children.
     - use model to predict if split increases precision.
-    - store results. 
+    - store results.
     if model predicts precision is increased by splitting, traverse (internal nodes only) children. else stop.
     """
     if results is None:
@@ -2516,54 +2667,60 @@ def traversal_with_clustering_fixed(overlap_manager: OverlapManager, node: str, 
     node_precision = 1 / len(set(node_true_leaves)) if len(node_true_leaves) > 0 else 0.0
     node_precision = 1 / node_precision if node_precision > 1 else node_precision
     node_leaf_taxids = node_leaves_best_taxids(overlap_manager, node, stats_matrix)
-    node_row = overlap_manager.all_node_stats[overlap_manager.all_node_stats['Node'] == node]
-    min_dist = node_row['Min_Pairwise_Dist'].values[0]
-    min_shared = node_row['Min_Shared'].values[0]
+    node_row = overlap_manager.all_node_stats[overlap_manager.all_node_stats["Node"] == node]
+    min_dist = node_row["Min_Pairwise_Dist"].values[0]
+    min_shared = node_row["Min_Shared"].values[0]
 
     best_taxid_match = stats_matrix[stats_matrix.index.isin(overlap_manager.get_node_leaves(node))].copy()
-    best_taxid_match = best_taxid_match.sort_values(by=['coverage'], ascending=False)['best_match_taxid'].tolist()
+    best_taxid_match = best_taxid_match.sort_values(by=["coverage"], ascending=False)["best_match_taxid"].tolist()
     best_taxid_match = best_taxid_match[0] if len(best_taxid_match) > 0 else None
 
     if min_shared >= min_dist_threshold:  # stop condition or leaf
         node_leaves = overlap_manager.get_node_leaves(node)
-        results.append({
-            'node': node,
-            'n_leaves': len(node_leaves),
-            'leaves': node_leaves,
-            'best_taxid_match': best_taxid_match,
-            'node_precision': node_precision,
-            'node_taxids': node_leaf_taxids,
-        })
+        results.append(
+            {
+                "node": node,
+                "n_leaves": len(node_leaves),
+                "leaves": node_leaves,
+                "best_taxid_match": best_taxid_match,
+                "node_precision": node_precision,
+                "node_taxids": node_leaf_taxids,
+            }
+        )
 
     # Traverse children if prediction is positive
     else:
         for child in overlap_manager.tree.successors(node):
             if overlap_manager.tree.out_degree(child) > 0:  # internal node
-                traversal_with_clustering_fixed(overlap_manager, child, stats_matrix, min_dist_threshold = min_dist_threshold, results=results)
+                traversal_with_clustering_fixed(
+                    overlap_manager, child, stats_matrix, min_dist_threshold=min_dist_threshold, results=results
+                )
             else:
-                best_taxid_match = stats_matrix[stats_matrix.index == child]['best_match_taxid'].tolist()
+                best_taxid_match = stats_matrix[stats_matrix.index == child]["best_match_taxid"].tolist()
                 best_taxid_match = best_taxid_match[0] if len(best_taxid_match) > 0 else None
                 results.append(
                     {
-                        'node': child,
-                        'n_leaves': 1,
-                        'leaves': [child],
-                        'best_taxid_match': best_taxid_match,
-                        'node_precision': 1.0,
-                        'node_taxids': [best_taxid_match] if best_taxid_match is not None else [],
+                        "node": child,
+                        "n_leaves": 1,
+                        "leaves": [child],
+                        "best_taxid_match": best_taxid_match,
+                        "node_precision": 1.0,
+                        "node_taxids": [best_taxid_match] if best_taxid_match is not None else [],
                     }
                 )
-        
 
     return results
 
-def traversal_with_prediction(overlap_manager: OverlapManager, 
-                              node: str, 
-                              modeller: BaseCompositionModeller, 
-                              stats_matrix, 
-                              tax_df: pd.DataFrame, 
-                              tax_level: str = "order", 
-                              results = None) -> List[pd.DataFrame]:
+
+def traversal_with_prediction(
+    overlap_manager: OverlapManager,
+    node: str,
+    modeller: BaseCompositionModeller,
+    stats_matrix,
+    tax_df: pd.DataFrame,
+    tax_level: str = "order",
+    results=None,
+) -> list[pd.DataFrame]:
     """
     Recursive function.
     Traverse the tree, internal nodes only. At each node:
@@ -2572,7 +2729,7 @@ def traversal_with_prediction(overlap_manager: OverlapManager,
     - extract node Min_Dist and Min_Shared
     - compute precision of split children.
     - use model to predict if split increases precision.
-    - store results. 
+    - store results.
     if model predicts precision is increased by splitting, traverse (internal nodes only) children. else stop.
     """
     if results is None:
@@ -2580,30 +2737,37 @@ def traversal_with_prediction(overlap_manager: OverlapManager,
     if modeller.model is None:
         raise ValueError("Modeller has no trained model. Please train the model before calling this function.")
 
-    composition = node_composition_level(overlap_manager, node, stats_matrix, tax_df, tax_level=tax_level).set_index('tax_level').T
-    composition= composition.reset_index(drop=True)
+    composition = (
+        node_composition_level(overlap_manager, node, stats_matrix, tax_df, tax_level=tax_level)
+        .set_index("tax_level")
+        .T
+    )
+    composition = composition.reset_index(drop=True)
 
     node_true_leaves = node_total_true_leaves(overlap_manager, node, stats_matrix)
     node_precision = 1 / len(set(node_true_leaves)) if len(node_true_leaves) > 0 else 0.0
     node_precision = 1 / node_precision if node_precision > 1 else node_precision
     node_leaf_taxids = node_leaves_best_taxids(overlap_manager, node, stats_matrix)
-    node_row = overlap_manager.all_node_stats[overlap_manager.all_node_stats['Node'] == node]
-    min_dist = node_row['Min_Pairwise_Dist'].values[0]
-    min_shared = node_row['Min_Shared'].values[0]
+    node_row = overlap_manager.all_node_stats[overlap_manager.all_node_stats["Node"] == node]
+    min_dist = node_row["Min_Pairwise_Dist"].values[0]
+    min_shared = node_row["Min_Shared"].values[0]
 
     node_total_leaf_taxa_div = node_leaf_shannon_tax_diversity(overlap_manager, node, stats_matrix, tax_level=tax_level)
 
-    input_features = pd.DataFrame({
-        'n_leaves': [len(overlap_manager.get_node_leaves(node))],
-        'tax_diversity': [node_total_leaf_taxa_div],
-        'Min_Dist': [min_dist],
-        'Min_Shared': [min_shared],
+    input_features = pd.DataFrame(
+        {
+            "n_leaves": [len(overlap_manager.get_node_leaves(node))],
+            "tax_diversity": [node_total_leaf_taxa_div],
+            "Min_Dist": [min_dist],
+            "Min_Shared": [min_shared],
+        }
+    )
 
-    })
+    input_features = pd.concat([input_features, composition], axis=1).drop(
+        columns=["unclassified"], errors="ignore", axis=1
+    )
 
-    input_features = pd.concat([input_features, composition], axis=1).drop(columns=['unclassified'], errors='ignore', axis=1)
-
-    expected_columns = getattr(modeller.model, 'feature_names_in_', None)
+    expected_columns = getattr(modeller.model, "feature_names_in_", None)
     if expected_columns is not None:
         input_features = input_features.reindex(columns=expected_columns, fill_value=0)
 
@@ -2612,100 +2776,113 @@ def traversal_with_prediction(overlap_manager: OverlapManager,
         print(f"Stopping at node {node} with {len(overlap_manager.get_node_leaves(node))} leaves.")
 
     best_taxid_match = stats_matrix[stats_matrix.index.isin(overlap_manager.get_node_leaves(node))].copy()
-    #best_taxid_match = best_taxid_match[best_taxid_match['is_trash'] == False]
-    best_taxid_match = best_taxid_match.sort_values(by=['coverage'], ascending=False)['best_match_taxid'].tolist() 
+    # best_taxid_match = best_taxid_match[best_taxid_match['is_trash'] == False]
+    best_taxid_match = best_taxid_match.sort_values(by=["coverage"], ascending=False)["best_match_taxid"].tolist()
 
     best_taxid_match = best_taxid_match[0] if len(best_taxid_match) > 0 else None
 
     if stop_traversal_pred == True or overlap_manager.tree.out_degree(node) == 0:  # stop condition or leaf
         node_leaves = overlap_manager.get_node_leaves(node)
-        results.append({
-            'node': node,
-            'n_leaves': len(node_leaves),
-            'leaves': node_leaves,
-            'best_taxid_match': best_taxid_match,
-            'node_precision': node_precision,
-            'node_taxids': node_leaf_taxids,
-        })
+        results.append(
+            {
+                "node": node,
+                "n_leaves": len(node_leaves),
+                "leaves": node_leaves,
+                "best_taxid_match": best_taxid_match,
+                "node_precision": node_precision,
+                "node_taxids": node_leaf_taxids,
+            }
+        )
 
     # Traverse children if prediction is positive
     else:
         for child in overlap_manager.tree.successors(node):
             if overlap_manager.tree.out_degree(child) > 0:  # internal node
-                traversal_with_prediction(overlap_manager, child, modeller, stats_matrix, tax_df, tax_level=tax_level, results=results)
+                traversal_with_prediction(
+                    overlap_manager, child, modeller, stats_matrix, tax_df, tax_level=tax_level, results=results
+                )
             else:
-                best_taxid_match = stats_matrix[stats_matrix.index == child]['best_match_taxid'].tolist()
+                best_taxid_match = stats_matrix[stats_matrix.index == child]["best_match_taxid"].tolist()
                 best_taxid_match = best_taxid_match[0] if len(best_taxid_match) > 0 else None
                 results.append(
                     {
-                        'node': child,
-                        'n_leaves': 1,
-                        'leaves': [child],
-                        'best_taxid_match': best_taxid_match,
-                        'node_precision': 1.0,
-                        'node_taxids': [best_taxid_match] if best_taxid_match is not None else [],
+                        "node": child,
+                        "n_leaves": 1,
+                        "leaves": [child],
+                        "best_taxid_match": best_taxid_match,
+                        "node_precision": 1.0,
+                        "node_taxids": [best_taxid_match] if best_taxid_match is not None else [],
                     }
                 )
-        
 
     return results
 
-def predict_data_set_clades_composition(data_set_name, 
-                                        m_stats_stats_matrix, 
-                                        overlap_manager: OverlapManager, 
-                                        modeller: BaseCompositionModeller, 
-                                        input_taxa: pd.DataFrame, 
-                                        tax_level: str = "order"):
+
+def predict_data_set_clades_composition(
+    data_set_name,
+    m_stats_stats_matrix,
+    overlap_manager: OverlapManager,
+    modeller: BaseCompositionModeller,
+    input_taxa: pd.DataFrame,
+    tax_level: str = "order",
+):
 
     results = []
     for root in overlap_manager.root_nodes:
-
-        root_results = traversal_with_prediction(overlap_manager, root, modeller, m_stats_stats_matrix, input_taxa, tax_level=tax_level, results=[])
+        root_results = traversal_with_prediction(
+            overlap_manager, root, modeller, m_stats_stats_matrix, input_taxa, tax_level=tax_level, results=[]
+        )
         results.extend(root_results)
 
     if len(results) == 0:
-        return pd.DataFrame(columns = ['data_set', 'node', 'n_leaves', 'leaves', 'best_taxid_match', 'node_precision', 'node_taxids'])
+        return pd.DataFrame(
+            columns=["data_set", "node", "n_leaves", "leaves", "best_taxid_match", "node_precision", "node_taxids"]
+        )
 
     results_df = pd.DataFrame(results)
 
-    results_df.insert(0, 'data_set', data_set_name)
+    results_df.insert(0, "data_set", data_set_name)
     return results_df
 
 
-def predict_data_set_clades_fixed(data_set_name, m_stats_stats_matrix, overlap_manager: OverlapManager, min_dist_threshold: float = 0.6):
+def predict_data_set_clades_fixed(
+    data_set_name, m_stats_stats_matrix, overlap_manager: OverlapManager, min_dist_threshold: float = 0.6
+):
 
     results = []
     for root in overlap_manager.root_nodes:
-
-        root_results = traversal_with_clustering_fixed(overlap_manager, root, m_stats_stats_matrix, min_dist_threshold=min_dist_threshold, results=[])
+        root_results = traversal_with_clustering_fixed(
+            overlap_manager, root, m_stats_stats_matrix, min_dist_threshold=min_dist_threshold, results=[]
+        )
         results.extend(root_results)
 
     if len(results) == 0:
-        return pd.DataFrame(columns = ['data_set', 'node', 'n_leaves', 'leaves', 'best_taxid_match', 'node_precision', 'node_taxids'])
+        return pd.DataFrame(
+            columns=["data_set", "node", "n_leaves", "leaves", "best_taxid_match", "node_precision", "node_taxids"]
+        )
 
     results_df = pd.DataFrame(results)
 
-    results_df.insert(0, 'data_set', data_set_name)
+    results_df.insert(0, "data_set", data_set_name)
     return results_df
-
 
 
 def calculate_clade_precision(result_df, input_summary=None):
     """
     Calculate the overall precision of the predicted clades.
-    
+
     When input_summary is provided, computes intersection-based precision:
     |predicted_taxids ∩ input_taxids| / |predicted_taxids|.
     Otherwise falls back to legacy behavior (fraction of predictions with a match).
     """
-    
-    n_predicted = result_df.drop_duplicates(subset=['node', 'best_taxid_match'])
+
+    n_predicted = result_df.drop_duplicates(subset=["node", "best_taxid_match"])
 
     if input_summary is not None:
-        input_taxids = set(input_summary['taxid'].unique())
-        predicted_taxids = set(n_predicted['best_taxid_match'].dropna().astype(int).unique())
+        input_taxids = set(input_summary["taxid"].unique())
+        predicted_taxids = set(n_predicted["best_taxid_match"].dropna().astype(int).unique())
         if len(predicted_taxids) == 0:
-            n_nodes = len(result_df.drop_duplicates(subset=['node']))
+            n_nodes = len(result_df.drop_duplicates(subset=["node"]))
             logger.debug(
                 f"calculate_clade_precision: precision=0 (empty predicted set), "
                 f"n_nodes={n_nodes}, n_input_taxids={len(input_taxids)}"
@@ -2723,27 +2900,28 @@ def calculate_clade_precision(result_df, input_summary=None):
             )
         return prec
 
-    overall_precision = n_predicted.dropna(subset=['best_taxid_match']).shape[0] / n_predicted.shape[0] if n_predicted.shape[0] > 0 else 0.0
+    overall_precision = (
+        n_predicted.dropna(subset=["best_taxid_match"]).shape[0] / n_predicted.shape[0]
+        if n_predicted.shape[0] > 0
+        else 0.0
+    )
     return overall_precision
 
 
-def get_spurious_composition(input_df, 
-                          m_stats_matrix: pd.DataFrame, 
-                          tax_df: pd.DataFrame, 
-                          tax_level: str = "order"):
+def get_spurious_composition(input_df, m_stats_matrix: pd.DataFrame, tax_df: pd.DataFrame, tax_level: str = "order"):
     compositions = []
-    
+
     for _, row in input_df.iterrows():
-        taxid = row['taxid']
+        taxid = row["taxid"]
         tax = row[tax_level]
-        trash_subset = m_stats_matrix[m_stats_matrix['is_trash'] == True]
-        trash_subset = trash_subset[trash_subset['cross_hit_match'] == taxid]
-        subset_composition = get_subset_composition(trash_subset, tax_df, tax_level=tax_level).set_index('tax_level').T
-        
+        trash_subset = m_stats_matrix[m_stats_matrix["is_trash"] == True]
+        trash_subset = trash_subset[trash_subset["cross_hit_match"] == taxid]
+        subset_composition = get_subset_composition(trash_subset, tax_df, tax_level=tax_level).set_index("tax_level").T
+
         subset_composition = subset_composition.reset_index(drop=True)
-        subset_composition.loc[:, 'tax_level'] = tax
-        
-        subset_composition.insert(0, 'taxid', taxid)
+        subset_composition.loc[:, "tax_level"] = tax
+
+        subset_composition.insert(0, "taxid", taxid)
 
         compositions.append(subset_composition)
     return pd.concat(compositions, ignore_index=True, axis=0)
@@ -2753,16 +2931,18 @@ def get_cross_hit_composition(input_df, m_stats_matrix: pd.DataFrame, tax_df: pd
     compositions = []
 
     for _, row in input_df.iterrows():
-        taxid = row['taxid']
+        taxid = row["taxid"]
         tax = row[tax_level]
-        crosshit_subset = m_stats_matrix[m_stats_matrix['is_crosshit'] == True]
-        crosshit_subset = crosshit_subset[crosshit_subset['cross_hit_match'] == taxid]
-        subset_composition = get_subset_composition(crosshit_subset, tax_df, tax_level=tax_level).set_index('tax_level').T
-        
+        crosshit_subset = m_stats_matrix[m_stats_matrix["is_crosshit"] == True]
+        crosshit_subset = crosshit_subset[crosshit_subset["cross_hit_match"] == taxid]
+        subset_composition = (
+            get_subset_composition(crosshit_subset, tax_df, tax_level=tax_level).set_index("tax_level").T
+        )
+
         subset_composition = subset_composition.reset_index(drop=True)
-        subset_composition.loc[:, 'tax_level'] = tax
-        
-        subset_composition.insert(0, 'taxid', taxid)
+        subset_composition.loc[:, "tax_level"] = tax
+
+        subset_composition.insert(0, "taxid", taxid)
 
         compositions.append(subset_composition)
     return pd.concat(compositions, ignore_index=True, axis=0)

@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.0.0] - 2026-07-01
+
+### Added
+
+- **`main.nf` entry point** — root-level workflow dispatcher supporting `benchmark` (default) and `classify_only` workflows via the `--workflow` parameter.
+- **Root `nextflow.config`** — consolidated DSL2 configuration with conda profile, resource defaults, and process-specific environment mappings, replacing per-module config scatter.
+- **Known limitations section** in README — documents the skipped Kraken tree processing test as a known issue.
+- **Data availability section** in README — placeholder for publication results archive.
+- **Reproducibility section** in README — documents tested software versions and pinned dependencies.
+
+### Changed
+
+- **Version bump** — `0.1.0` → `1.0.0` (first stable release matching publication).
+- **CITATION.cff** — updated `date-released` to `2026-07-01`, version to `1.0.0`.
+- **`.gitignore`** — added `nextflow_dag.html`, `clade_precision_diagnostics.csv`, `local_evaluation/` to ignore list.
+
+### Removed
+
+- **Tracked artifacts** — `nextflow_dag.html` removed from git tracking.
+- **`local_evaluation/`** — empty directory removed.
+
 ## [Unreleased]
 
 ### Added

@@ -1,10 +1,6 @@
-import itertools
 import itertools as it
 import logging
 import os
-from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from typing import Dict, List, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -15,8 +11,8 @@ from Bio.Phylo.TreeConstruction import DistanceMatrix, DistanceTreeConstructor
 from scipy.spatial.distance import pdist, squareform
 
 from utils.clade_objects import Clade, CladeFilter
-from utils.phylo_tree import PhyloTreeManager
 from utils.general import Temp_File
+from utils.phylo_tree import PhyloTreeManager
 from utils.televir_bioinf import TelevirBioinf
 from utils.utils import Utils
 
@@ -41,9 +37,7 @@ def pairwise_shared_count(
         shared_reads.append(prod0)
 
     if len(shared_reads) == 0:
-        return pd.DataFrame(
-            index=read_profile_matrix.index, columns=read_profile_matrix.index
-        )
+        return pd.DataFrame(index=read_profile_matrix.index, columns=read_profile_matrix.index)
     shared_reads = np.concatenate(shared_reads, axis=0)
 
     shared_reads = pd.DataFrame(
@@ -73,9 +67,7 @@ def square_and_fill_diagonal(clade_read_matrix: pd.DataFrame) -> pd.DataFrame:
     return shared_clade_matrix
 
 
-def very_similar_groups_from_dataframe(
-    read_profile_matrix_filtered: pd.DataFrame, threshold=0.95
-) -> List[tuple]:
+def very_similar_groups_from_dataframe(read_profile_matrix_filtered: pd.DataFrame, threshold=0.95) -> list[tuple]:
     """
     find very similar entries entries in pairwise shared clade
     """
@@ -89,10 +81,7 @@ def very_similar_groups_from_dataframe(
         for j in range(shared_read_matrix.shape[1]):
             if i == j:
                 continue
-            if (
-                shared_read_matrix.iloc[i, j] >= threshold
-                or shared_read_matrix.iloc[j, i] >= threshold
-            ):
+            if shared_read_matrix.iloc[i, j] >= threshold or shared_read_matrix.iloc[j, i] >= threshold:
                 assingments = [
                     clusters_assigment_dict.get(i, None),
                     clusters_assigment_dict.get(j, None),
@@ -116,9 +105,7 @@ def very_similar_groups_from_dataframe(
             clusters.append([i])
 
     # clusters = [x for x in clusters if len(x) > 1]
-    clusters = [
-        tuple([read_profile_matrix_filtered.index[y] for y in x]) for x in clusters
-    ]
+    clusters = [tuple([read_profile_matrix_filtered.index[y] for y in x]) for x in clusters]
 
     return clusters
 
@@ -145,9 +132,7 @@ def clade_private_proportions_old(read_profile_matrix_filtered, leaves: list) ->
     return proportion_private
 
 
-def clade_private_proportions(
-    read_profile_matrix: pd.DataFrame, leaves: list
-) -> Tuple[float, float, float]:
+def clade_private_proportions(read_profile_matrix: pd.DataFrame, leaves: list) -> tuple[float, float, float]:
     """ """
     group = read_profile_matrix.loc[leaves]
     group_sum = group.sum(axis=0)
@@ -222,7 +207,6 @@ def pairwise_shared_reads_old(read_profile_matrix: pd.DataFrame) -> pd.DataFrame
 
 
 class MappingResultsParser:
-
     read_profile_matrix: pd.DataFrame
     read_profile_matrix_filtered: pd.DataFrame
     overlap_matrix: pd.DataFrame
@@ -250,9 +234,7 @@ class MappingResultsParser:
 
     @property
     def accid_statistics_path(self):
-        return os.path.join(
-            self.media_dir, self.accid_statistics_filename.format(self.pid)
-        )
+        return os.path.join(self.media_dir, self.accid_statistics_filename.format(self.pid))
 
     @staticmethod
     def accid_from_metadata(metadata: pd.DataFrame, read_name: str) -> str:
@@ -287,7 +269,6 @@ class MappingResultsParser:
         televir_bioinf = TelevirBioinf()
 
         for ix, row in self.metadata.iterrows():
-
             accid = row["accid"]
             bam = row["bam"]
 
@@ -302,7 +283,7 @@ class MappingResultsParser:
         return readname_dict
 
     @staticmethod
-    def all_reads_set(files_readnames: List[list]) -> list:
+    def all_reads_set(files_readnames: list[list]) -> list:
         all_reads = list(it.chain.from_iterable(files_readnames))
         all_reads = list(set(all_reads))
 
@@ -323,9 +304,7 @@ class MappingResultsParser:
         """
         read_profile_dict = {}
         for accid in readname_dict.keys():
-            read_profile_dict[accid] = self.render_binary_profile(
-                accid, readname_dict, all_reads
-            )
+            read_profile_dict[accid] = self.render_binary_profile(accid, readname_dict, all_reads)
 
         return read_profile_dict
 
@@ -360,10 +339,7 @@ class MappingResultsParser:
         Get proportion counts for accession
         """
 
-        return (
-            self.get_accession_total_counts(accid)
-            / self.read_profile_matrix_filtered.sum().sum()
-        )
+        return self.get_accession_total_counts(accid) / self.read_profile_matrix_filtered.sum().sum()
 
     def prep_accid_table(self):
         #########
@@ -378,9 +354,7 @@ class MappingResultsParser:
         accid_df = accid_df.drop_duplicates(subset=["accid"])
 
         # get proportion of reads
-        accid_df["proportion"] = accid_df["accid"].apply(
-            lambda x: self.get_proportion_counts(x)
-        )
+        accid_df["proportion"] = accid_df["accid"].apply(lambda x: self.get_proportion_counts(x))
         accid_df.to_csv(self.accid_statistics_path, sep="\t", index=False)
 
         return accid_df
@@ -397,9 +371,7 @@ class MappingResultsParser:
         read_counts = read_profile_matrix.sum(axis=0)
         read_freqs = read_counts / read_profile_matrix.shape[0]
         # filter reads by frequency
-        read_profile_matrix_filtered = read_profile_matrix.loc[
-            :, read_freqs > self.min_freq
-        ]
+        read_profile_matrix_filtered = read_profile_matrix.loc[:, read_freqs > self.min_freq]
 
         if read_profile_matrix_filtered.shape[1] == 0:
             self.logger.info("No reads with frequency > min_freq")
@@ -411,9 +383,7 @@ class MappingResultsParser:
                     f"More than {self.max_reads} reads ({read_profile_matrix_filtered.shape[1]}) - sampling"
                 )
                 ## sample reads
-                read_profile_matrix_filtered = read_profile_matrix_filtered.sample(
-                    n=self.max_reads, axis=1
-                )
+                read_profile_matrix_filtered = read_profile_matrix_filtered.sample(n=self.max_reads, axis=1)
 
         return read_profile_matrix_filtered
 
@@ -426,13 +396,9 @@ class MappingResultsParser:
 
         self.total_read_counts = self.read_profile_matrix.sum(axis=0)
 
-        self.read_profile_matrix_filtered: pd.DataFrame = self.filter_read_matrix(
-            self.read_profile_matrix
-        )
+        self.read_profile_matrix_filtered: pd.DataFrame = self.filter_read_matrix(self.read_profile_matrix)
 
-        self.overlap_matrix: pd.DataFrame = pairwise_shared_count(
-            self.read_profile_matrix_filtered
-        )
+        self.overlap_matrix: pd.DataFrame = pairwise_shared_count(self.read_profile_matrix_filtered)
 
         self.prep_accid_table()
 
@@ -466,9 +432,7 @@ class ReadOverlapManager(MappingResultsParser):
         self.force_tree_rebuild = force_tree_rebuild
         self.parsed = False
 
-        self.metadata["filename"] = self.metadata["file"].apply(
-            lambda x: x.split("/")[-1]
-        )
+        self.metadata["filename"] = self.metadata["file"].apply(lambda x: x.split("/")[-1])
 
         self.metadata["filepath"] = self.metadata["file"]
 
@@ -478,35 +442,25 @@ class ReadOverlapManager(MappingResultsParser):
             print(e)
 
         self.tree_plot_exists = os.path.exists(self.tree_plot_path)
-        self.tree_plot_path_render = os.path.join(
-            "/media/", self.tree_plot_path.split("/media/")[-1]
-        )
+        self.tree_plot_path_render = os.path.join("/media/", self.tree_plot_path.split("/media/")[-1])
         self.overlap_matrix_plot_exists = os.path.exists(self.overlap_matrix_plot_path)
         self.analysis_exists = os.path.exists(self.media_dir)
 
     @property
     def distance_matrix_path(self):
-        return os.path.join(
-            self.media_dir, self.distance_matrix_filename.format(self.pid)
-        )
+        return os.path.join(self.media_dir, self.distance_matrix_filename.format(self.pid))
 
     @property
     def shared_prop_matrix_path(self):
-        return os.path.join(
-            self.media_dir, self.shared_prop_matrix_filename.format(self.pid)
-        )
+        return os.path.join(self.media_dir, self.shared_prop_matrix_filename.format(self.pid))
 
     @property
     def clade_shared_prop_matrix_path(self):
-        return os.path.join(
-            self.media_dir, self.clade_shared_prop_matrix_filename.format(self.pid)
-        )
+        return os.path.join(self.media_dir, self.clade_shared_prop_matrix_filename.format(self.pid))
 
     @property
     def clade_statistics_path(self):
-        return os.path.join(
-            self.media_dir, self.clade_statistics_filename.format(self.pid)
-        )
+        return os.path.join(self.media_dir, self.clade_statistics_filename.format(self.pid))
 
     @property
     def tree_plot_path(self):
@@ -514,15 +468,11 @@ class ReadOverlapManager(MappingResultsParser):
 
     @property
     def overlap_matrix_plot_path(self):
-        return os.path.join(
-            self.media_dir, self.overlap_matrix_plot_filename.format(self.pid)
-        )
+        return os.path.join(self.media_dir, self.overlap_matrix_plot_filename.format(self.pid))
 
     @property
     def overlap_pca_plot_path(self):
-        return os.path.join(
-            self.media_dir, self.overlap_pca_plot_filename.format(self.pid)
-        )
+        return os.path.join(self.media_dir, self.overlap_pca_plot_filename.format(self.pid))
 
     def build_tree(self):
 
@@ -539,9 +489,7 @@ class ReadOverlapManager(MappingResultsParser):
 
     def get_media_path_heatmap_clade(self, clade_str: str):
         clade_str_keep = clade_str.replace(" ", "_").lower()
-        return os.path.join(
-            self.media_dir, f"heatmap_clade_{clade_str_keep}.{self.pid}.png"
-        )
+        return os.path.join(self.media_dir, f"heatmap_clade_{clade_str_keep}.{self.pid}.png")
 
     def all_accs_analyzed(self):
         if not os.path.exists(self.accid_statistics_path):
@@ -681,26 +629,19 @@ class ReadOverlapManager(MappingResultsParser):
 
         accid_df = pd.read_csv(self.accid_statistics_path, sep="\t")
 
-        similar_groups = very_similar_groups_from_dataframe(
-            self.read_profile_matrix_filtered
-        )
+        similar_groups = very_similar_groups_from_dataframe(self.read_profile_matrix_filtered)
 
         if "private_reads" not in accid_df.columns:
             accid_df["private_reads"] = 0
 
         for duplicate_group in similar_groups:
-
             (
                 group_private_counts,
                 _,
                 _,
-            ) = clade_private_proportions(
-                self.read_profile_matrix, list(duplicate_group)
-            )
+            ) = clade_private_proportions(self.read_profile_matrix, list(duplicate_group))
 
-            accid_df.loc[accid_df.accid.isin(duplicate_group), "private_reads"] = (
-                group_private_counts
-            )
+            accid_df.loc[accid_df.accid.isin(duplicate_group), "private_reads"] = group_private_counts
 
         accid_df.to_csv(self.accid_statistics_path, sep="\t", index=False)
 
@@ -710,9 +651,7 @@ class ReadOverlapManager(MappingResultsParser):
         """
         reads_dict = {}
         for accid in read_profile_matrix.index:
-            reads_dict[accid] = read_profile_matrix.columns[
-                read_profile_matrix.loc[accid] == 1
-            ].values.tolist()
+            reads_dict[accid] = read_profile_matrix.columns[read_profile_matrix.loc[accid] == 1].values.tolist()
         return reads_dict
 
     def check_all_accessions_in_distance_matrix(self, distance_matrix):
@@ -730,15 +669,11 @@ class ReadOverlapManager(MappingResultsParser):
             distance_matrix = pd.read_csv(self.distance_matrix_path, index_col=0)
         else:
             self.parse_for_data()
-            distance_matrix = pairwise_shared_reads_distance(
-                self.read_profile_matrix_filtered
-            )
+            distance_matrix = pairwise_shared_reads_distance(self.read_profile_matrix_filtered)
 
         if not self.check_all_accessions_in_distance_matrix(distance_matrix):
             self.parse_for_data()
-            distance_matrix = pairwise_shared_reads_distance(
-                self.read_profile_matrix_filtered
-            )
+            distance_matrix = pairwise_shared_reads_distance(self.read_profile_matrix_filtered)
 
         try:  # Written only on job submisision. File not written on query.
             distance_matrix.to_csv(self.distance_matrix_path)
@@ -832,9 +767,7 @@ class ReadOverlapManager(MappingResultsParser):
 
         return private_counts
 
-    def between_clade_reads_matrix(
-        self, filter_names=[], remove_leaves=True, sort_private=False
-    ) -> pd.DataFrame:
+    def between_clade_reads_matrix(self, filter_names=[], remove_leaves=True, sort_private=False) -> pd.DataFrame:
         """
         Return dataframe reads per clade"""
         clade_read_matrix = []
@@ -842,7 +775,6 @@ class ReadOverlapManager(MappingResultsParser):
         private_sort = {}
 
         for clade, leaves in self.all_clade_leaves_filtered.items():
-
             if len(leaves) == 0:
                 continue
 
@@ -857,9 +789,7 @@ class ReadOverlapManager(MappingResultsParser):
             reads_in_clade = self.read_profile_matrix_filtered.loc[leaves]
             reads_in_clade_sum = reads_in_clade.sum(axis=0)
             reads_in_clade_sum_as_bool = reads_in_clade_sum > 0
-            reads_in_clade_sum_as_int_list = reads_in_clade_sum_as_bool.astype(
-                int
-            ).tolist()
+            reads_in_clade_sum_as_int_list = reads_in_clade_sum_as_bool.astype(int).tolist()
             clade_read_matrix.append(reads_in_clade_sum_as_int_list)
             belonging.append(clade.name)
             if sort_private:
@@ -878,12 +808,7 @@ class ReadOverlapManager(MappingResultsParser):
         )
 
         if sort_private:
-            private_sort = {
-                k: v
-                for k, v in sorted(
-                    private_sort.items(), key=lambda item: item[1], reverse=True
-                )
-            }
+            private_sort = {k: v for k, v in sorted(private_sort.items(), key=lambda item: item[1], reverse=True)}
             clade_read_matrix = clade_read_matrix.reindex(private_sort.keys())
 
         return clade_read_matrix
@@ -898,18 +823,14 @@ class ReadOverlapManager(MappingResultsParser):
     def between_clade_shared_reads(self, clades_filter=[]) -> pd.DataFrame:
         """
         Return dataframe of pairwise shared reads between all pairs of clades"""
-        clade_read_matrix = self.between_clade_reads_matrix(
-            filter_names=clades_filter, remove_leaves=False
-        )
+        clade_read_matrix = self.between_clade_reads_matrix(filter_names=clades_filter, remove_leaves=False)
         shared_clade_matrix = square_and_fill_diagonal(clade_read_matrix)
 
         return shared_clade_matrix
 
     def within_clade_shared_reads(self, clade) -> pd.DataFrame:
         """ """
-        clade_node = [
-            x for x in self.all_clade_leaves_filtered.keys() if x.name == clade
-        ][0]
+        clade_node = [x for x in self.all_clade_leaves_filtered.keys() if x.name == clade][0]
         leaves = self.all_clade_leaves_filtered[clade_node]
 
         clade_read_matrix = self.within_clade_reads_matrix(leaves)
@@ -955,7 +876,6 @@ class ReadOverlapManager(MappingResultsParser):
         """
 
         from sklearn.decomposition import PCA
-        from sklearn.preprocessing import StandardScaler
 
         if self.read_profile_matrix_filtered.shape[1] <= 3:
             return
@@ -1016,7 +936,6 @@ class ReadOverlapManager(MappingResultsParser):
             return node_stats_dict
 
         for node, leaves in self.all_clade_leaves_filtered.items():
-
             if len(leaves) == 0:
                 node_stats_dict[node] = Clade(
                     name=node,
@@ -1064,9 +983,7 @@ class ReadOverlapManager(MappingResultsParser):
             ### calculate max per sample shared reads per sample
             individual_sets = []
             for leaf in leaves:
-                pairs_set = combinations[
-                    (combinations.accid_A == leaf) | (combinations.accid_B == leaf)
-                ]
+                pairs_set = combinations[(combinations.accid_A == leaf) | (combinations.accid_B == leaf)]
                 pairs_set = pairs_set.aggregate(
                     {
                         "proportion_max": lambda x: max(x),
@@ -1075,12 +992,8 @@ class ReadOverlapManager(MappingResultsParser):
                 )
                 individual_sets.append(pairs_set)
             individual_sets = pd.DataFrame(individual_sets)
-            individual_sets["proportion_max"] = individual_sets[
-                "proportion_max"
-            ].fillna(0)
-            individual_sets["proportion_min"] = individual_sets[
-                "proportion_min"
-            ].fillna(0)
+            individual_sets["proportion_max"] = individual_sets["proportion_max"].fillna(0)
+            individual_sets["proportion_min"] = individual_sets["proportion_min"].fillna(0)
             individual_sets["proportion_std"] = individual_sets["proportion_max"].std()
 
             node_stats_dict[node] = Clade(
@@ -1098,9 +1011,7 @@ class ReadOverlapManager(MappingResultsParser):
 
         return node_stats_dict
 
-    def all_clades_summary(
-        self, node_stats_dict: Dict[Phylo.BaseTree.Clade, Clade]
-    ) -> pd.DataFrame:
+    def all_clades_summary(self, node_stats_dict: dict[Phylo.BaseTree.Clade, Clade]) -> pd.DataFrame:
         clade_summary = []
         for node, stats in node_stats_dict.items():
             clade_summary.append(
@@ -1135,8 +1046,8 @@ class ReadOverlapManager(MappingResultsParser):
     def clade_dict_from_summary(
         self,
         clade_summary: pd.DataFrame,
-        inner_node_leaf_dict: Dict[Phylo.BaseTree.Clade, list],
-    ) -> Dict[Phylo.BaseTree.Clade, Clade]:
+        inner_node_leaf_dict: dict[Phylo.BaseTree.Clade, list],
+    ) -> dict[Phylo.BaseTree.Clade, Clade]:
         """
         Create a dictionary of clades from the summary dataframe
         """
@@ -1147,9 +1058,7 @@ class ReadOverlapManager(MappingResultsParser):
 
         for node, stats in clade_summary.iterrows():
             try:
-                node_phylo_clade = [
-                    x for x in inner_node_leaf_dict.keys() if x.name == node
-                ][0]
+                node_phylo_clade = [x for x in inner_node_leaf_dict.keys() if x.name == node][0]
             except IndexError:
                 # self.logger.error("node not found in tree")
                 continue
@@ -1180,7 +1089,7 @@ class ReadOverlapManager(MappingResultsParser):
         return tree_manager
 
     @property
-    def all_clade_leaves_filtered(self) -> Dict[Phylo.BaseTree.Clade, list]:
+    def all_clade_leaves_filtered(self) -> dict[Phylo.BaseTree.Clade, list]:
         all_node_leaves = self.tree_manager.all_clades_leaves()
 
         all_node_leaves = {
@@ -1190,7 +1099,7 @@ class ReadOverlapManager(MappingResultsParser):
 
         return all_node_leaves
 
-    def get_node_statistics(self, force=False) -> Dict[Phylo.BaseTree.Clade, Clade]:
+    def get_node_statistics(self, force=False) -> dict[Phylo.BaseTree.Clade, Clade]:
         if os.path.isfile(self.clade_statistics_path) and not force:
             clade_summary = pd.read_csv(self.clade_statistics_path)
             node_statistics_dict = self.clade_dict_from_summary(
@@ -1201,9 +1110,7 @@ class ReadOverlapManager(MappingResultsParser):
         else:
             node_statistics_dict = self.node_statistics()
 
-            clade_summary = self.all_clades_summary(
-                node_stats_dict=node_statistics_dict
-            )
+            clade_summary = self.all_clades_summary(node_stats_dict=node_statistics_dict)
 
             clade_summary.to_csv(self.clade_statistics_path, index=False)
 
@@ -1220,9 +1127,7 @@ class ReadOverlapManager(MappingResultsParser):
             group_sum_as_bool = group_sum > 0
             group_sum_as_bool_list = group_sum_as_bool.tolist()
 
-            group_reads = self.read_profile_matrix_filtered.iloc[
-                :, group_sum_as_bool_list
-            ]
+            group_reads = self.read_profile_matrix_filtered.iloc[:, group_sum_as_bool_list]
             group_reads_sum_all = group_reads.sum(axis=0)
             group_reads_sum_group = group_reads.loc[leaves].sum(axis=0)
             group_reads_sum_group = group_reads_sum_group.fillna(0)
@@ -1243,8 +1148,7 @@ class ReadOverlapManager(MappingResultsParser):
         clades_filtered = [
             clade
             for clade, clade_obj in clades_dict.items()
-            if self.clade_filter.filter_clade(clade_obj)
-            and self.safe_clade_name(clade) != "None"
+            if self.clade_filter.filter_clade(clade_obj) and self.safe_clade_name(clade) != "None"
         ]
         return clades_filtered
 
@@ -1260,8 +1164,8 @@ class ReadOverlapManager(MappingResultsParser):
 
     def leaf_clades_to_pandas(
         self,
-        leaf_clades: Dict[str, Phylo.BaseTree.Clade],
-        statistics_dict: Dict[Phylo.BaseTree.Clade, Clade],
+        leaf_clades: dict[str, Phylo.BaseTree.Clade],
+        statistics_dict: dict[Phylo.BaseTree.Clade, Clade],
     ) -> pd.DataFrame:
         """
         Return dataframe of leaf clades
@@ -1321,9 +1225,7 @@ class ReadOverlapManager(MappingResultsParser):
 
         accids_df = pd.read_csv(self.accid_statistics_path, sep="\t")
         #
-        leaf_clades_df = leaf_clades_df.merge(
-            accids_df, right_on="accid", left_on="leaf"
-        )
+        leaf_clades_df = leaf_clades_df.merge(accids_df, right_on="accid", left_on="leaf")
 
         def copy_leaf_to_clade_if_none(row):
             if row.clade == "None":

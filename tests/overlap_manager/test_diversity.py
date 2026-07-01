@@ -1,14 +1,15 @@
 """
 Tests for diversity functions in metagenomics_utils.overlap_manager.diversity
 """
+
 import pytest
-import numpy as np
+
 from metagenomics_utils.overlap_manager.diversity import (
+    kurtosis,
     shannon_diversity,
     shannon_diversity_from_counts,
     shannon_diversity_from_list,
     skewness,
-    kurtosis,
 )
 
 
@@ -69,13 +70,13 @@ class TestShannonDiversityFromList:
 
     def test_taxa_list(self):
         """Test with list of taxa."""
-        taxa = ['A', 'A', 'B', 'B', 'C']
+        taxa = ["A", "A", "B", "B", "C"]
         result = shannon_diversity_from_list(taxa)
         assert result > 0
 
     def test_single_taxa(self):
         """Test with single taxa repeated."""
-        taxa = ['A', 'A', 'A']
+        taxa = ["A", "A", "A"]
         result = shannon_diversity_from_list(taxa)
         assert result == 0.0
 
@@ -87,7 +88,7 @@ class TestShannonDiversityFromList:
 
     def test_all_unique(self):
         """Test with all unique taxa."""
-        taxa = ['A', 'B', 'C', 'D']
+        taxa = ["A", "B", "C", "D"]
         result = shannon_diversity_from_list(taxa)
         assert result > 0
 
@@ -137,13 +138,13 @@ class TestOverlapManagerMissingFiles:
         """Test that missing all_node_statistics.tsv creates empty DataFrame."""
         clustering_dir = tmp_path / "clustering"
         clustering_dir.mkdir()
-        
+
         distance_matrix = clustering_dir / "distance_matrix.tsv"
         distance_matrix.write_text("""	asm1	asm2
 asm1	0.0	0.5
 asm2	0.5	0.0
 """)
-        
+
         from metagenomics_utils.overlap_manager.manager import OverlapManager
 
         om = OverlapManager(str(clustering_dir), skip_build=True)
@@ -155,13 +156,13 @@ asm2	0.5	0.0
         """Test that check_data_available returns True when distance_matrix.tsv exists."""
         clustering_dir = tmp_path / "clustering"
         clustering_dir.mkdir()
-        
+
         distance_matrix = clustering_dir / "distance_matrix.tsv"
         distance_matrix.write_text("""	asm1	asm2
 asm1	0.0	0.5
 asm2	0.5	0.0
 """)
-        
+
         from metagenomics_utils.overlap_manager.manager import OverlapManager
 
         om = OverlapManager(str(clustering_dir), skip_build=True)
@@ -183,24 +184,24 @@ asm2	0.5	0.0
         from metagenomics_utils.overlap_manager.manager import OverlapManager
 
         om = OverlapManager(str(clustering_dir), skip_build=True)
-        assert hasattr(om, 'tree')
-        assert hasattr(om, 'recreate_all_node_stats_from_tree')
+        assert hasattr(om, "tree")
+        assert hasattr(om, "recreate_all_node_stats_from_tree")
         assert callable(om.recreate_all_node_stats_from_tree)
 
     def test_recreate_all_node_stats_method_exists(self, tmp_path):
         """Test that OverlapManager has recreate_all_node_stats method."""
         clustering_dir = tmp_path / "clustering"
         clustering_dir.mkdir()
-        
+
         distance_matrix = clustering_dir / "distance_matrix.tsv"
         distance_matrix.write_text("""	asm1	asm2
 asm1	0.0	0.3
 asm2	0.3	0.0
 """)
-        
+
         from metagenomics_utils.overlap_manager.manager import OverlapManager
-        
+
         om = OverlapManager(str(clustering_dir), skip_build=True)
 
-        assert hasattr(om, 'recreate_all_node_stats_from_tree')
+        assert hasattr(om, "recreate_all_node_stats_from_tree")
         assert callable(om.recreate_all_node_stats_from_tree)

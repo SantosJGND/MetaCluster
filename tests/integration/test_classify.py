@@ -1,11 +1,10 @@
 """
 Integration tests for classify workflow.
 """
+
 import subprocess
-from pathlib import Path
 
 import pytest
-
 
 # Test configurations: (name, qc, centrifuge, kraken2, diamond, krakenunique)
 CLASSIFY_VARIANTS = [
@@ -22,8 +21,7 @@ CLASSIFY_VARIANTS = [
 )
 @pytest.mark.timeout(600)
 def test_classify_variants(
-    name, qc, centrifuge, kraken2, diamond, krakenunique,
-    reads_dir, temp_output_dir, project_root, cleanup_nextflow
+    name, qc, centrifuge, kraken2, diamond, krakenunique, reads_dir, temp_output_dir, project_root, cleanup_nextflow
 ):
     """Test classify workflow with different configurations."""
     output_dir = temp_output_dir / f"classify_{name}"
@@ -33,17 +31,28 @@ def test_classify_variants(
             "nextflow",
             "run",
             "deployment/classify/classify.nf",
-            "-profile", "conda",
-            "-c", "test_run/nextflow.config",
-            "-params-file", "test_run/params_test.json",
-            "--reads", str(reads_dir / "fastq"),
-            "--output_dir", str(output_dir),
-            "--analysis_id", f"test_{name}",
-            "--qc", str(qc),
-            "--centrifuge", str(centrifuge),
-            "--kraken2", str(kraken2),
-            "--diamond", str(diamond),
-            "--krakenunique", str(krakenunique),
+            "-profile",
+            "conda",
+            "-c",
+            "test_run/nextflow.config",
+            "-params-file",
+            "test_run/params_test.json",
+            "--reads",
+            str(reads_dir / "fastq"),
+            "--output_dir",
+            str(output_dir),
+            "--analysis_id",
+            f"test_{name}",
+            "--qc",
+            str(qc),
+            "--centrifuge",
+            str(centrifuge),
+            "--kraken2",
+            str(kraken2),
+            "--diamond",
+            str(diamond),
+            "--krakenunique",
+            str(krakenunique),
         ],
         cwd=project_root,
         capture_output=True,
@@ -60,9 +69,7 @@ def test_classify_variants(
 @pytest.mark.integration
 @pytest.mark.classify
 @pytest.mark.timeout(600)
-def test_classify_software_column(
-    reads_dir, temp_output_dir, project_root, cleanup_nextflow
-):
+def test_classify_software_column(reads_dir, temp_output_dir, project_root, cleanup_nextflow):
     """Test that classify output contains software column for tracking classifiers."""
     output_dir = temp_output_dir / "classify_software_test"
 
@@ -72,12 +79,18 @@ def test_classify_software_column(
             "nextflow",
             "run",
             "deployment/classify/classify.nf",
-            "-profile", "conda",
-            "-c", "test_run/nextflow.config",
-            "-params-file", "test_run/params_test.json",
-            "--reads", str(reads_dir / "fastq"),
-            "--output_dir", str(output_dir),
-            "--analysis_id", "software_test",
+            "-profile",
+            "conda",
+            "-c",
+            "test_run/nextflow.config",
+            "-params-file",
+            "test_run/params_test.json",
+            "--reads",
+            str(reads_dir / "fastq"),
+            "--output_dir",
+            str(output_dir),
+            "--analysis_id",
+            "software_test",
         ],
         cwd=project_root,
         check=True,
@@ -95,9 +108,7 @@ def test_classify_software_column(
 @pytest.mark.integration
 @pytest.mark.classify
 @pytest.mark.timeout(600)
-def test_classify_accepts_simulate_output(
-    minimal_tables_dir, temp_output_dir, project_root, cleanup_nextflow
-):
+def test_classify_accepts_simulate_output(minimal_tables_dir, temp_output_dir, project_root, cleanup_nextflow):
     """Test that classify can accept output from simulate workflow."""
     # First, run simulation to generate reads
     table = minimal_tables_dir / "minimal_single.tsv"
@@ -108,11 +119,16 @@ def test_classify_accepts_simulate_output(
             "nextflow",
             "run",
             "deployment/simulation/simulate.nf",
-            "-profile", "conda",
-            "-c", "test_run/nextflow.config",
-            "-params-file", "test_run/params_test.json",
-            "--input_table", str(table),
-            "--output_dir", str(sim_output),
+            "-profile",
+            "conda",
+            "-c",
+            "test_run/nextflow.config",
+            "-params-file",
+            "test_run/params_test.json",
+            "--input_table",
+            str(table),
+            "--output_dir",
+            str(sim_output),
         ],
         cwd=project_root,
         check=True,
@@ -131,12 +147,18 @@ def test_classify_accepts_simulate_output(
             "nextflow",
             "run",
             "deployment/classify/classify.nf",
-            "-profile", "conda",
-            "-c", "test_run/nextflow.config",
-            "-params-file", "test_run/params_test.json",
-            "--reads", str(sim_reads_dir),
-            "--output_dir", str(classify_output),
-            "--analysis_id", "from_sim",
+            "-profile",
+            "conda",
+            "-c",
+            "test_run/nextflow.config",
+            "-params-file",
+            "test_run/params_test.json",
+            "--reads",
+            str(sim_reads_dir),
+            "--output_dir",
+            str(classify_output),
+            "--analysis_id",
+            "from_sim",
         ],
         cwd=project_root,
         capture_output=True,
@@ -150,9 +172,7 @@ def test_classify_accepts_simulate_output(
 @pytest.mark.integration
 @pytest.mark.classify
 @pytest.mark.timeout(600)
-def test_classify_no_cluster_analysis_flag(
-    reads_dir, temp_output_dir, project_root, cleanup_nextflow
-):
+def test_classify_no_cluster_analysis_flag(reads_dir, temp_output_dir, project_root, cleanup_nextflow):
     """Test classify workflow with --no-cluster-analysis flag produces distance_matrix but not clade_report."""
     output_dir = temp_output_dir / "classify_no_cluster_analysis"
 
@@ -161,12 +181,18 @@ def test_classify_no_cluster_analysis_flag(
             "nextflow",
             "run",
             "deployment/classify/classify.nf",
-            "-profile", "conda",
-            "-c", "test_run/nextflow.config",
-            "-params-file", "test_run/params_test.json",
-            "--reads", str(reads_dir / "fastq"),
-            "--output_dir", str(output_dir),
-            "--analysis_id", "no_cluster_test",
+            "-profile",
+            "conda",
+            "-c",
+            "test_run/nextflow.config",
+            "-params-file",
+            "test_run/params_test.json",
+            "--reads",
+            str(reads_dir / "fastq"),
+            "--output_dir",
+            str(output_dir),
+            "--analysis_id",
+            "no_cluster_test",
         ],
         cwd=project_root,
         capture_output=True,

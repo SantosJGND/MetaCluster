@@ -2,9 +2,9 @@ import argparse
 import csv
 import json
 import sys
-from pathlib import Path
 
 import requests
+
 from .client import MLAPIClient
 
 
@@ -13,11 +13,13 @@ def _read_rows(csv_path: str) -> list[dict]:
     with open(csv_path) as f:
         reader = csv.DictReader(f)
         for row in reader:
-            rows.append({
-                "taxid": int(row["taxid"]),
-                "total_uniq_reads": float(row["total_uniq_reads"]),
-                "best_match_is_best": row.get("best_match_is_best", "false").strip().lower() == "true",
-            })
+            rows.append(
+                {
+                    "taxid": int(row["taxid"]),
+                    "total_uniq_reads": float(row["total_uniq_reads"]),
+                    "best_match_is_best": row.get("best_match_is_best", "false").strip().lower() == "true",
+                }
+            )
     return rows
 
 

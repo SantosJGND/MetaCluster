@@ -1,8 +1,8 @@
 """
 Integration tests for simulation workflow.
 """
+
 import subprocess
-from pathlib import Path
 
 import pytest
 
@@ -10,9 +10,7 @@ import pytest
 @pytest.mark.integration
 @pytest.mark.simulation
 @pytest.mark.timeout(600)
-def test_simulation_single_dataset(
-    minimal_tables_dir, temp_output_dir, project_root, cleanup_nextflow
-):
+def test_simulation_single_dataset(minimal_tables_dir, temp_output_dir, project_root, cleanup_nextflow):
     """Test simulation with single dataset."""
     table = minimal_tables_dir / "minimal_single.tsv"
     assert table.exists(), f"Test table not found: {table}"
@@ -22,11 +20,16 @@ def test_simulation_single_dataset(
             "nextflow",
             "run",
             "deployment/simulation/simulate.nf",
-            "-profile", "conda",
-            "-c", "test_run/nextflow.config",
-            "-params-file", "test_run/params_test.json",
-            "--input_table", str(table),
-            "--output_dir", str(temp_output_dir),
+            "-profile",
+            "conda",
+            "-c",
+            "test_run/nextflow.config",
+            "-params-file",
+            "test_run/params_test.json",
+            "--input_table",
+            str(table),
+            "--output_dir",
+            str(temp_output_dir),
         ],
         cwd=project_root,
         capture_output=True,
@@ -55,9 +58,7 @@ def test_simulation_single_dataset(
 @pytest.mark.integration
 @pytest.mark.simulation
 @pytest.mark.timeout(600)
-def test_simulation_multi_dataset(
-    minimal_tables_dir, temp_output_dir, project_root, cleanup_nextflow
-):
+def test_simulation_multi_dataset(minimal_tables_dir, temp_output_dir, project_root, cleanup_nextflow):
     """Test simulation with multi-dataset table."""
     table = minimal_tables_dir / "minimal_multi.tsv"
     assert table.exists(), f"Test table not found: {table}"
@@ -67,11 +68,16 @@ def test_simulation_multi_dataset(
             "nextflow",
             "run",
             "deployment/simulation/simulate.nf",
-            "-profile", "conda",
-            "-c", "test_run/nextflow.config",
-            "-params-file", "test_run/params_test.json",
-            "--input_table", str(table),
-            "--output_dir", str(temp_output_dir),
+            "-profile",
+            "conda",
+            "-c",
+            "test_run/nextflow.config",
+            "-params-file",
+            "test_run/params_test.json",
+            "--input_table",
+            str(table),
+            "--output_dir",
+            str(temp_output_dir),
         ],
         cwd=project_root,
         capture_output=True,
@@ -84,9 +90,7 @@ def test_simulation_multi_dataset(
 
 @pytest.mark.integration
 @pytest.mark.simulation
-def test_simulation_output_format(
-    minimal_tables_dir, temp_output_dir, project_root, cleanup_nextflow
-):
+def test_simulation_output_format(minimal_tables_dir, temp_output_dir, project_root, cleanup_nextflow):
     """Test that simulation output has correct format for classify workflow."""
     table = minimal_tables_dir / "minimal_single.tsv"
 
@@ -96,11 +100,16 @@ def test_simulation_output_format(
             "nextflow",
             "run",
             "deployment/simulation/simulate.nf",
-            "-profile", "conda",
-            "-c", "test_run/nextflow.config",
-            "-params-file", "test_run/params_test.json",
-            "--input_table", str(table),
-            "--output_dir", str(temp_output_dir),
+            "-profile",
+            "conda",
+            "-c",
+            "test_run/nextflow.config",
+            "-params-file",
+            "test_run/params_test.json",
+            "--input_table",
+            str(table),
+            "--output_dir",
+            str(temp_output_dir),
         ],
         cwd=project_root,
         check=True,

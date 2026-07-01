@@ -5,100 +5,113 @@ Provides validated configuration for the evaluator module with
 support for CLI args, YAML, JSON, and environment variables.
 """
 
-from pathlib import Path
-from typing import Optional, Any, Literal
-from dataclasses import field
-
-from pydantic import BaseModel, Field, field_validator, model_validator, ConfigDict
 import argparse
+from dataclasses import field
+from pathlib import Path
+from typing import Any, Literal
+
 import pandas as pd
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-
-ALLOWED_TAX_LEVELS = {'order', 'family', 'genus', 'species'}
+ALLOWED_TAX_LEVELS = {"order", "family", "genus", "species"}
 
 
 class EvaluatorConfig(BaseModel):
     """
     Main configuration for evaluator.
-    
+
     Uses Pydantic v2 for automatic validation and type coercion.
     """
-    
+
     model_config = ConfigDict(
-        extra='forbid',
+        extra="forbid",
         str_strip_whitespace=True,
         validate_assignment=True,
     )
-    
+
     study_output_filepath: Path
     taxid_plan_filepath: Path
     analysis_output_filepath: Path
 
     target_recall: float = Field(default=1.0, ge=0.0, le=1.0)
     data_set_divide: int = Field(default=16, ge=1, le=20)
-    tax_level: str = Field(default='order', description=f"Taxonomic level to use for evaluation. Allowed values: {ALLOWED_TAX_LEVELS}")
+    tax_level: str = Field(
+        default="order", description=f"Taxonomic level to use for evaluation. Allowed values: {ALLOWED_TAX_LEVELS}"
+    )
     cross_hit_threshold: float = Field(default=0.95, ge=0.0, le=1.0)
     enable_cross_hit: bool = Field(default=False, description="Enable cross-hit cleanup during evaluation")
     taxa_threshold: float = Field(default=0.02, ge=0.0, le=1.0)
     holdout_proportion: float = Field(default=0.3, ge=0.0, le=1.0)
-    max_training: Optional[int] = Field(default=None, ge=1)
+    max_training: int | None = Field(default=None, ge=1)
     threshold: float = Field(default=0.3, ge=0.0, le=1.0)
     max_taxids_fixed_filter: int = Field(default=15, ge=1)
-    output_db_dir: Optional[Path] = None
-    recall_model_interface: str = Field(default='xgb', description="Model interface: 'xgb'/'morf'/... or 'direct' for cutoff classifier")
-    composition_model_interface: str = Field(default='xgb', description="Composition model variant: 'xgb', 'xgb_optimized', 'rf', 'gb', 'lr'")
-    cutoff_confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0, description="Confidence level for probability-guided cutoff (None = point prediction)")
-    recall_sort_strategy: str = Field(default='reads', description="Sort strategy for recall feature transformer: 'reads', 'taxid_roundrobin', 'rarity_boost', 'tax_level_stratified'")
-    
+    output_db_dir: Path | None = None
+    recall_model_interface: str = Field(
+        default="xgb", description="Model interface: 'xgb'/'morf'/... or 'direct' for cutoff classifier"
+    )
+    composition_model_interface: str = Field(
+        default="xgb", description="Composition model variant: 'xgb', 'xgb_optimized', 'rf', 'gb', 'lr'"
+    )
+    cutoff_confidence: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Confidence level for probability-guided cutoff (None = point prediction)",
+    )
+    recall_sort_strategy: str = Field(
+        default="reads",
+        description="Sort strategy for recall feature transformer: 'reads', 'taxid_roundrobin', 'rarity_boost', 'tax_level_stratified'",
+    )
+
     verbose: bool = Field(default=False, description="Enable verbose console logging")
     generate_report: bool = Field(default=True, description="Generate HTML report")
     use_mlflow: bool = Field(default=True, description="Enable MLflow tracking")
-    mlflow_uri: Optional[str] = Field(default=None, description="MLflow tracking URI")
+    mlflow_uri: str | None = Field(default=None, description="MLflow tracking URI")
     use_cache: bool = Field(default=True, description="Use cached training data")
-    
-    @field_validator('tax_level')
+
+    @field_validator("tax_level")
     @classmethod
     def validate_tax_level(cls, v: str) -> str:
         if v.lower() not in ALLOWED_TAX_LEVELS:
-            raise ValueError(f'tax_level must be one of {ALLOWED_TAX_LEVELS}, got: {v}')
+            raise ValueError(f"tax_level must be one of {ALLOWED_TAX_LEVELS}, got: {v}")
         return v.lower()
-    
-    @field_validator('cross_hit_threshold', 'taxa_threshold', 'holdout_proportion', 'threshold')
+
+    @field_validator("cross_hit_threshold", "taxa_threshold", "holdout_proportion", "threshold")
     @classmethod
     def validate_probability(cls, v: float) -> float:
         if not 0.0 <= v <= 1.0:
-            raise ValueError(f'Value must be between 0.0 and 1.0, got: {v}')
+            raise ValueError(f"Value must be between 0.0 and 1.0, got: {v}")
         return v
-    
-    @model_validator(mode='after')
+
+    @model_validator(mode="after")
     def validate_paths(self):
         if not self.study_output_filepath.exists():
-            raise ValueError(f'study_output_filepath does not exist: {self.study_output_filepath}')
+            raise ValueError(f"study_output_filepath does not exist: {self.study_output_filepath}")
         if not self.taxid_plan_filepath.exists():
-            raise ValueError(f'taxid_plan_filepath does not exist: {self.taxid_plan_filepath}')
+            raise ValueError(f"taxid_plan_filepath does not exist: {self.taxid_plan_filepath}")
         self.analysis_output_filepath.mkdir(parents=True, exist_ok=True)
         return self
-    
+
     @property
     def proportion_train(self) -> float:
         return 1.0 - self.holdout_proportion
-    
+
     @property
     def models_dir(self) -> Path:
         return self.analysis_output_filepath / "models"
-    
+
     @property
     def output_lineages(self) -> Path:
         return self.study_output_filepath / "lineages.tsv"
-    
+
     @property
     def output_db(self) -> Path:
         if self.output_db_dir:
             return self.output_db_dir / "taxa.db"
         return self.study_output_filepath / "taxa.db"
-    
+
     @classmethod
-    def from_args(cls, args: argparse.Namespace) -> 'EvaluatorConfig':
+    def from_args(cls, args: argparse.Namespace) -> "EvaluatorConfig":
         """Create config from argparse.Namespace."""
         return cls(
             target_recall=args.target_recall,
@@ -117,41 +130,45 @@ class EvaluatorConfig(BaseModel):
             output_db_dir=Path(args.output_db_dir) if args.output_db_dir else None,
             recall_model_interface=args.recall_model_interface,
             composition_model_interface=args.composition_model_interface,
-            cutoff_confidence=getattr(args, 'cutoff_confidence', None),
-            recall_sort_strategy=getattr(args, 'recall_sort_strategy', 'reads'),
+            cutoff_confidence=getattr(args, "cutoff_confidence", None),
+            recall_sort_strategy=getattr(args, "recall_sort_strategy", "reads"),
             verbose=args.verbose,
             generate_report=not args.no_report,
             use_mlflow=args.use_mlflow,
             mlflow_uri=args.mlflow_uri,
             use_cache=not args.no_cache,
         )
-    
+
     @classmethod
-    def from_yaml(cls, path: str | Path) -> 'EvaluatorConfig':
+    def from_yaml(cls, path: str | Path) -> "EvaluatorConfig":
         """Load config from YAML file."""
         import yaml
+
         with open(path) as f:
             data = yaml.safe_load(f)
         return cls(**data)
-    
+
     @classmethod
-    def from_json(cls, path: str | Path) -> 'EvaluatorConfig':
+    def from_json(cls, path: str | Path) -> "EvaluatorConfig":
         """Load config from JSON file."""
         import json
+
         with open(path) as f:
             data = json.load(f)
         return cls(**data)
-    
+
     def to_yaml(self, path: str | Path) -> None:
         """Save config to YAML file."""
         import yaml
-        with open(path, 'w') as f:
+
+        with open(path, "w") as f:
             yaml.dump(self.model_dump(), f, default_flow_style=False)
-    
+
     def to_json(self, path: str | Path) -> None:
         """Save config to JSON file."""
         import json
-        with open(path, 'w') as f:
+
+        with open(path, "w") as f:
             json.dump(self.model_dump(), f, indent=2)
 
 
@@ -159,28 +176,34 @@ class ModelConfig(BaseModel):
     """
     Configuration for model training hyperparameters.
     """
-    
-    model_config = ConfigDict(extra='allow')
-    
-    recall_hyperparams: dict = field(default_factory=lambda: {
-        'n_estimators': 100,
-        'max_depth': 5,
-        'learning_rate': 0.1,
-        'objective': 'binary:logistic',
-    })
-    
-    composition_hyperparams: dict = field(default_factory=lambda: {
-        'n_estimators': 50,
-        'max_depth': 3,
-        'learning_rate': 0.1,
-    })
-    
-    crosshit_hyperparams: dict = field(default_factory=lambda: {
-        'probability_threshold': 0.9,
-        'n_estimators': 50,
-        'max_depth': 3,
-    })
-    
+
+    model_config = ConfigDict(extra="allow")
+
+    recall_hyperparams: dict = field(
+        default_factory=lambda: {
+            "n_estimators": 100,
+            "max_depth": 5,
+            "learning_rate": 0.1,
+            "objective": "binary:logistic",
+        }
+    )
+
+    composition_hyperparams: dict = field(
+        default_factory=lambda: {
+            "n_estimators": 50,
+            "max_depth": 3,
+            "learning_rate": 0.1,
+        }
+    )
+
+    crosshit_hyperparams: dict = field(
+        default_factory=lambda: {
+            "probability_threshold": 0.9,
+            "n_estimators": 50,
+            "max_depth": 3,
+        }
+    )
+
     k_folds: int = Field(default=5, ge=2, le=10)
     test_size: float = Field(default=0.2, ge=0.1, le=0.5)
     random_state: int = Field(default=42)
@@ -190,17 +213,17 @@ class VisualizationConfig(BaseModel):
     """
     Configuration for visualization output.
     """
-    
-    model_config = ConfigDict(extra='allow')
-    
-    style: str = Field(default='seaborn-v0_8-darkgrid')
+
+    model_config = ConfigDict(extra="allow")
+
+    style: str = Field(default="seaborn-v0_8-darkgrid")
     figure_dpi: int = Field(default=300, ge=72, le=600)
-    figure_format: Literal['png', 'svg', 'pdf', 'jpg'] = Field(default='png')
+    figure_format: Literal["png", "svg", "pdf", "jpg"] = Field(default="png")
     interactive: bool = Field(default=False)
-    html_template: Optional[str] = None
+    html_template: str | None = None
     width: int = Field(default=12, ge=6, le=24)
     height: int = Field(default=8, ge=4, le=16)
-    color_palette: str = Field(default='viridis')
+    color_palette: str = Field(default="viridis")
     font_scale: float = Field(default=1.0, ge=0.5, le=2.0)
 
 
@@ -208,49 +231,49 @@ class MLflowConfig(BaseModel):
     """
     Configuration for MLflow tracking.
     """
-    
-    model_config = ConfigDict(extra='allow')
-    
+
+    model_config = ConfigDict(extra="allow")
+
     enabled: bool = Field(default=False)
-    tracking_uri: Optional[str] = None
-    experiment_name: str = Field(default='metagenomics-evaluation')
-    run_name: Optional[str] = None
+    tracking_uri: str | None = None
+    experiment_name: str = Field(default="metagenomics-evaluation")
+    run_name: str | None = None
     log_models: bool = Field(default=True)
     log_datasets: bool = Field(default=True)
-    artifact_location: Optional[str] = None
+    artifact_location: str | None = None
 
 
 class LoggingConfig(BaseModel):
     """
     Configuration for logging.
     """
-    
-    model_config = ConfigDict(extra='allow')
-    
-    level: Literal['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'] = Field(default='INFO')
-    format: Literal['json', 'text'] = Field(default='text')
-    log_file: Optional[Path] = None
-    console_level: str = Field(default='INFO')
-    file_level: str = Field(default='DEBUG')
+
+    model_config = ConfigDict(extra="allow")
+
+    level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(default="INFO")
+    format: Literal["json", "text"] = Field(default="text")
+    log_file: Path | None = None
+    console_level: str = Field(default="INFO")
+    file_level: str = Field(default="DEBUG")
 
 
 class TrainedModels:
     """
     Container for trained model instances.
     """
-    
+
     def __init__(
         self,
         recall_modeller: Any = None,
         composition_modeller: Any = None,
         crosshit_modeller: Any = None,
-        taxids_to_use: Optional[pd.DataFrame] = None,
+        taxids_to_use: pd.DataFrame | None = None,
     ):
         self.recall_modeller = recall_modeller
         self.composition_modeller = composition_modeller
         self.crosshit_modeller = crosshit_modeller
         self.taxids_to_use = taxids_to_use
-    
+
     def __repr__(self) -> str:
         return (
             f"TrainedModels("
@@ -259,11 +282,13 @@ class TrainedModels:
             f"crosshit={self.crosshit_modeller is not None}, "
             f"taxids_to_use={self.taxids_to_use is not None})"
         )
-    
+
     @property
     def is_complete(self) -> bool:
-        return all([
-            self.recall_modeller is not None,
-            self.composition_modeller is not None,
-            self.crosshit_modeller is not None,
-        ])
+        return all(
+            [
+                self.recall_modeller is not None,
+                self.composition_modeller is not None,
+                self.crosshit_modeller is not None,
+            ]
+        )

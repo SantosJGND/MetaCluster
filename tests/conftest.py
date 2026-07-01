@@ -1,10 +1,11 @@
 """
 Pytest configuration and shared fixtures.
 """
+
 import os
 import tempfile
+from collections.abc import Generator
 from pathlib import Path
-from typing import Generator
 
 import pandas as pd
 import pytest
@@ -77,11 +78,13 @@ seq3\tNP_005678.1\t85.0\t100\t0\t0\t1\t100\t1\t100\t1e-40\t180
 @pytest.fixture
 def sample_classification_df() -> pd.DataFrame:
     """Create a sample classification DataFrame."""
-    return pd.DataFrame({
-        'taxid': [562, 28901, 456],
-        'description': ['Escherichia coli', 'Salmonella enterica', 'Unknown'],
-        'uniq_reads': [100, 80, 10]
-    })
+    return pd.DataFrame(
+        {
+            "taxid": [562, 28901, 456],
+            "description": ["Escherichia coli", "Salmonella enterica", "Unknown"],
+            "uniq_reads": [100, 80, 10],
+        }
+    )
 
 
 @pytest.fixture
@@ -101,8 +104,8 @@ def mock_ncbi_response():
     """Mock NCBI Entrez response structure."""
     return [
         {
-            'TaxId': 562,
-            'ScientificName': 'Escherichia coli',
-            'Lineage': 'cellular organisms; Bacteria; Proteobacteria; Gammaproteobacteria; Enterobacterales; Enterobacteriaceae; Escherichia'
+            "TaxId": 562,
+            "ScientificName": "Escherichia coli",
+            "Lineage": "cellular organisms; Bacteria; Proteobacteria; Gammaproteobacteria; Enterobacterales; Enterobacteriaceae; Escherichia",
         }
     ]

@@ -1,8 +1,6 @@
 import csv
-import time
-import os
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 
 LOG_DIR = Path(__file__).parent.parent / "logs"
 LOG_FILE = LOG_DIR / "predictions.csv"
@@ -26,10 +24,11 @@ def log_prediction(model_version, prediction, latency_ms):
 def get_metrics():
     _ensure_file()
     import csv
+
     count = 0
     total_latency = 0.0
     latest_version = None
-    with open(LOG_FILE, "r") as f:
+    with open(LOG_FILE) as f:
         reader = csv.DictReader(f)
         for row in reader:
             count += 1
@@ -41,4 +40,3 @@ def get_metrics():
         "avg_latency_ms": avg_latency,
         "model_version": latest_version,
     }
-

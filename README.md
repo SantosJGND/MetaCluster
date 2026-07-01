@@ -14,7 +14,7 @@ Metagenomic analysis creates a wealth of data that can be challenging to interpr
 pip install -e .
 
 # Run the Nextflow pipeline
-nextflow run main.nf -profile conda --params_file deployment/params.json
+nextflow run main.nf -profile conda -params-file deployment/params.json
 ```
 
 See [run_tests/](run_tests/) for working configuration examples.
@@ -97,7 +97,7 @@ After creating the environments, set each `*_conda_env` parameter in your params
 ### Running the Pipeline
 
 ```bash
-nextflow run main.nf -profile conda --params_file deployment/params.json
+nextflow run main.nf -profile conda -params-file deployment/params.json
 ```
 
 ## Running Benchmark Analysis
@@ -141,6 +141,33 @@ docker run -p 8000:8000 ml_api
 ```
 
 See [deployment/ml_api/README.md](deployment/ml_api/README.md) for endpoint documentation.
+
+## Known Limitations
+
+- **Kraken tree processing** — One test in the classification test suite is skipped due to a known issue with Kraken tree output processing. This affects only specific edge cases in Kraken's hierarchical output format. The main classification and benchmarking workflows are unaffected.
+
+## Reproducibility
+
+The results in the associated publication were produced using the following software versions:
+
+| Component | Version |
+|---|---|
+| Nextflow | 24.x |
+| Python | 3.11 |
+| Centrifuge | 1.0.4-beta |
+| Diamond | 2.0.15 |
+| Kraken2 | 2.1.2 |
+| minimap2 | 2.30 |
+| samtools | 1.22.1 |
+| msamtools | 1.1.3 |
+| prinseq-plus-plus | 1.2.4 |
+
+Python dependency versions are pinned in `requirements.txt`. Conda environment definitions are in `envs/`.
+
+## Data Availability
+
+The evaluation results, trained models, and analysis outputs from the associated publication are archived on Zenodo:
+- **DOI**: [10.5281/zenodo.XXXXXXX](https://doi.org/10.5281/zenodo.XXXXXXX)
 
 ## Tests
 

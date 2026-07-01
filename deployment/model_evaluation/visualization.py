@@ -5,34 +5,34 @@ Generates plots and charts from evaluation results.
 """
 
 import os
-from typing import Optional
 
-import pandas as pd
 import matplotlib.pyplot as plt
+import pandas as pd
 import seaborn as sns
+from plotly import graph_objects as go
 
 from .result_models import BatchEvaluationResult
-from plotly import graph_objects as go
+
 
 class ResultVisualizer:
     """
     Generates all plots from BatchEvaluationResult.
     """
-    
+
     def __init__(self, output_dir: str):
         """
         Initialize visualizer.
-        
+
         Args:
             output_dir: Directory to save plots
         """
         self.output_dir = output_dir
         os.makedirs(output_dir, exist_ok=True)
-    
+
     def plot_all(self, results: BatchEvaluationResult) -> None:
         """
         Generate all plots.
-        
+
         Args:
             results: BatchEvaluationResult with evaluation data
         """
@@ -57,21 +57,21 @@ class ResultVisualizer:
     def plot_precision_distribution(self, test_results: pd.DataFrame) -> None:
         """
         Plot histogram of overall precision distribution.
-        
+
         Args:
             test_results: Test results DataFrame
         """
 
-        var_to_plot = 'precision_clade_post'
+        var_to_plot = "precision_clade_post"
         if test_results.empty or var_to_plot not in test_results.columns:
             return
 
         plt.figure(figsize=(10, 6))
-        sns.histplot(test_results[test_results['recall_baseline'] > 0][var_to_plot], bins=20, kde=True)
-        plt.xlabel('Overall Precision')
+        sns.histplot(test_results[test_results["recall_baseline"] > 0][var_to_plot], bins=20, kde=True)
+        plt.xlabel("Overall Precision")
         plt.xlim(0, 1.0)
-        plt.ylabel('Frequency')
-        plt.title('Distribution of Overall Precision Across Test Datasets')
+        plt.ylabel("Frequency")
+        plt.title("Distribution of Overall Precision Across Test Datasets")
         plt.tight_layout()
         plt.savefig(os.path.join(self.output_dir, f"{var_to_plot}_histogram.png"))
         plt.close()
@@ -79,37 +79,42 @@ class ResultVisualizer:
     def plot_precision_comparison(self, summary_results: pd.DataFrame) -> None:
         """
         Plot boxplot comparing precision metrics.
-        
+
         Args:
             summary_results: Summary results DataFrame
         """
         precision_cols = [
-            'precision_best_match', 'purity', 'purity_cov_filtered',
-            'precision_clade_full', 'precision_clade_post_cleanup', 'precision_clade_fixed'
+            "precision_best_match",
+            "purity",
+            "purity_cov_filtered",
+            "precision_clade_full",
+            "precision_clade_post_cleanup",
+            "precision_clade_fixed",
         ]
-        
+
         available_cols = [c for c in precision_cols if c in summary_results.columns]
         if not available_cols:
             print("No available columns for precision comparison.")
             return
-        
-        if 'sample' not in summary_results.columns:
+
+        if "sample" not in summary_results.columns:
             print("No 'sample' column found for precision comparison.")
             return
-        
-        melted = summary_results[summary_results['recall_baseline'] > 0] if 'recall_baseline' in summary_results.columns else summary_results 
-        melted = summary_results.melt(
-            id_vars=['sample'], 
-            value_vars=available_cols, 
-            var_name='Metric', 
-            value_name='Value'
+
+        melted = (
+            summary_results[summary_results["recall_baseline"] > 0]
+            if "recall_baseline" in summary_results.columns
+            else summary_results
         )
-        
+        melted = summary_results.melt(
+            id_vars=["sample"], value_vars=available_cols, var_name="Metric", value_name="Value"
+        )
+
         plt.figure(figsize=(12, 8))
-        sns.boxplot(x='Metric', y='Value', data=melted)
-        plt.title('Comparison of Precision Metrics Across Datasets')
-        plt.ylabel('Precision')
-        plt.xlabel('Metric')
+        sns.boxplot(x="Metric", y="Value", data=melted)
+        plt.title("Comparison of Precision Metrics Across Datasets")
+        plt.ylabel("Precision")
+        plt.xlabel("Metric")
         plt.ylim(0, 3)
         plt.xticks(rotation=45)
         plt.tight_layout()
@@ -119,7 +124,7 @@ class ResultVisualizer:
         if melted.empty:
             return
 
-        metrics = list(melted['Metric'].unique())
+        metrics = list(melted["Metric"].unique())
         if not metrics:
             return
 
@@ -129,17 +134,17 @@ class ResultVisualizer:
             axes = [axes]
 
         for ax, metric in zip(axes, metrics):
-            series = melted.loc[melted['Metric'] == metric, 'Value'].dropna()
+            series = melted.loc[melted["Metric"] == metric, "Value"].dropna()
             if series.empty:
-                ax.text(0.5, 0.5, 'No data', ha='center', va='center')
-                ax.set_ylabel('Frequency')
+                ax.text(0.5, 0.5, "No data", ha="center", va="center")
+                ax.set_ylabel("Frequency")
                 continue
-            sns.histplot(series, bins=30, kde=True, ax=ax, color='steelblue')
-            ax.set_title(metric.replace('_', ' ').title())
-            ax.set_ylabel('Frequency')
+            sns.histplot(series, bins=30, kde=True, ax=ax, color="steelblue")
+            ax.set_title(metric.replace("_", " ").title())
+            ax.set_ylabel("Frequency")
             ax.set_xlim(0.0, 1.1)
 
-        axes[-1].set_xlabel('Precision')
+        axes[-1].set_xlabel("Precision")
         plt.tight_layout()
         plt.savefig(os.path.join(self.output_dir, "precision_metrics_histograms.png"))
         plt.close()
@@ -147,31 +152,35 @@ class ResultVisualizer:
     def plot_recall_comparison(self, summary_results: pd.DataFrame) -> None:
         """
         Plot boxplot comparing recall metrics.
-        
+
         Args:
             summary_results: Summary results DataFrame
         """
-        recall_cols = ['recall_baseline', 'recall_baseline_cov_filtered', 'recall_clade_pre_cleanup', 'recall_clade_post_cleanup', 'recall_after_recall_filter', 'recall_fixed_max_12']
+        recall_cols = [
+            "recall_baseline",
+            "recall_baseline_cov_filtered",
+            "recall_clade_pre_cleanup",
+            "recall_clade_post_cleanup",
+            "recall_after_recall_filter",
+            "recall_fixed_max_12",
+        ]
 
         available_cols = [c for c in recall_cols if c in summary_results.columns]
         if not available_cols:
             return
-        
-        if 'sample' not in summary_results.columns:
+
+        if "sample" not in summary_results.columns:
             return
-            
+
         melted = summary_results.melt(
-            id_vars=['sample'], 
-            value_vars=available_cols, 
-            var_name='Metric', 
-            value_name='Value'
+            id_vars=["sample"], value_vars=available_cols, var_name="Metric", value_name="Value"
         )
-        
+
         plt.figure(figsize=(12, 6))
-        sns.boxplot(x='Metric', y='Value', data=melted)
-        plt.title('Comparison of Recall Metrics Across Datasets')
-        plt.ylabel('Recall')
-        plt.xlabel('Metric')
+        sns.boxplot(x="Metric", y="Value", data=melted)
+        plt.title("Comparison of Recall Metrics Across Datasets")
+        plt.ylabel("Recall")
+        plt.xlabel("Metric")
         plt.xticks(rotation=45)
         plt.tight_layout()
         plt.savefig(os.path.join(self.output_dir, "recall_metrics_boxplot.png"))
@@ -180,280 +189,310 @@ class ResultVisualizer:
     def plot_cross_hit_heatmap(self, cross_hit_composition: pd.DataFrame) -> None:
         """
         Plot heatmap of cross-hit composition.
-        
+
         Args:
             cross_hit_composition: Cross-hit composition DataFrame
         """
-        if cross_hit_composition.empty or 'tax_level' not in cross_hit_composition.columns:
+        if cross_hit_composition.empty or "tax_level" not in cross_hit_composition.columns:
             return
-        
+
         summary_df = self._composition_summary(cross_hit_composition)
         if summary_df.empty:
             return
-        
+
         summary_df = summary_df.sort_index()
         summary_df = summary_df.reindex(sorted(summary_df.columns), axis=1)
-        
+
         plt.figure(figsize=(12, 8))
-        sns.heatmap(summary_df, cmap='viridis', annot=True, fmt=".2f")
-        plt.title('Average Cross-Hit Composition by Tax Level')
-        plt.xlabel('Taxa')
-        plt.ylabel('Tax Level')
+        sns.heatmap(summary_df, cmap="viridis", annot=True, fmt=".2f")
+        plt.title("Average Cross-Hit Composition by Tax Level")
+        plt.xlabel("Taxa")
+        plt.ylabel("Tax Level")
         plt.tight_layout()
         plt.savefig(os.path.join(self.output_dir, "cross_hit_composition_heatmap.png"))
         plt.close()
-    
+
     def _has_cross_hit_data(self, summary_results: pd.DataFrame) -> bool:
         """Check if cross-hit columns exist in summary results."""
-        return 'cross_hit_precision' in summary_results.columns
-    
+        return "cross_hit_precision" in summary_results.columns
+
     def plot_cross_hit_metrics(self, summary_results: pd.DataFrame) -> None:
         """
         Plot cross-hit precision/recall/F1/Specificity metrics as boxplot.
-        
+
         Args:
             summary_results: Summary results DataFrame
         """
         if not self._has_cross_hit_data(summary_results):
             return
-        
-        cols = ['cross_hit_precision', 'cross_hit_recall', 'cross_hit_f1', 'cross_hit_specificity']
+
+        cols = ["cross_hit_precision", "cross_hit_recall", "cross_hit_f1", "cross_hit_specificity"]
         available_cols = [c for c in cols if c in summary_results.columns]
-        
+
         if not available_cols:
             return
-        
+
         fig, ax = plt.subplots(figsize=(10, 6))
-        sns.boxplot(data=summary_results[available_cols], palette='viridis', ax=ax)
-        ax.set_ylabel('Score')
+        sns.boxplot(data=summary_results[available_cols], palette="viridis", ax=ax)
+        ax.set_ylabel("Score")
         ax.set_ylim(0, 1.1)
-        ax.set_title('Cross-Hit Model Performance')
-        ax.tick_params(axis='x', rotation=45)
+        ax.set_title("Cross-Hit Model Performance")
+        ax.tick_params(axis="x", rotation=45)
         plt.tight_layout()
         fig.savefig(os.path.join(self.output_dir, "cross_hit_metrics_boxplot.png"), dpi=300)
         plt.close()
-    
+
     def plot_cross_hit_distribution(self, summary_results: pd.DataFrame) -> None:
         """
         Plot distribution of predicted vs actual cross-hits as histogram.
-        
+
         Args:
             summary_results: Summary results DataFrame
         """
         if not self._has_cross_hit_data(summary_results):
             return
-        
-        if 'predicted_cross_hits' not in summary_results.columns or 'total_true_cross_hits' not in summary_results.columns:
+
+        if (
+            "predicted_cross_hits" not in summary_results.columns
+            or "total_true_cross_hits" not in summary_results.columns
+        ):
             return
-        
+
         fig, axes = plt.subplots(1, 2, figsize=(14, 5))
-        
-        axes[0].hist(summary_results['predicted_cross_hits'], bins=20, alpha=0.7, color='steelblue')
-        axes[0].set_xlabel('Predicted Cross-Hits')
-        axes[0].set_ylabel('Frequency')
-        axes[0].set_title('Distribution of Predicted Cross-Hits')
-        
-        axes[1].hist(summary_results['total_true_cross_hits'], bins=20, alpha=0.7, color='coral')
-        axes[1].set_xlabel('True Cross-Hits')
-        axes[1].set_ylabel('Frequency')
-        axes[1].set_title('Distribution of True Cross-Hits')
-        
+
+        axes[0].hist(summary_results["predicted_cross_hits"], bins=20, alpha=0.7, color="steelblue")
+        axes[0].set_xlabel("Predicted Cross-Hits")
+        axes[0].set_ylabel("Frequency")
+        axes[0].set_title("Distribution of Predicted Cross-Hits")
+
+        axes[1].hist(summary_results["total_true_cross_hits"], bins=20, alpha=0.7, color="coral")
+        axes[1].set_xlabel("True Cross-Hits")
+        axes[1].set_ylabel("Frequency")
+        axes[1].set_title("Distribution of True Cross-Hits")
+
         plt.tight_layout()
         fig.savefig(os.path.join(self.output_dir, "cross_hit_distribution_histogram.png"), dpi=300)
         plt.close()
-    
+
     def plot_cross_hit_improvement(self, summary_results: pd.DataFrame) -> None:
         """
         Plot predicted vs actual cross-hits scatter plot.
-        
+
         Args:
             summary_results: Summary results DataFrame
         """
         if not self._has_cross_hit_data(summary_results):
             return
-        
-        if 'predicted_cross_hits' not in summary_results.columns or 'total_true_cross_hits' not in summary_results.columns:
+
+        if (
+            "predicted_cross_hits" not in summary_results.columns
+            or "total_true_cross_hits" not in summary_results.columns
+        ):
             return
-        
+
         fig, ax = plt.subplots(figsize=(8, 6))
-        sns.scatterplot(
-            data=summary_results, 
-            x='predicted_cross_hits', 
-            y='total_true_cross_hits',
-            ax=ax,
-            alpha=0.6
-        )
+        sns.scatterplot(data=summary_results, x="predicted_cross_hits", y="total_true_cross_hits", ax=ax, alpha=0.6)
         max_val = max(
-            summary_results['predicted_cross_hits'].max() if not summary_results['predicted_cross_hits'].empty else 0,
-            summary_results['total_true_cross_hits'].max() if not summary_results['total_true_cross_hits'].empty else 0
+            summary_results["predicted_cross_hits"].max() if not summary_results["predicted_cross_hits"].empty else 0,
+            summary_results["total_true_cross_hits"].max() if not summary_results["total_true_cross_hits"].empty else 0,
         )
         if max_val > 0:
-            ax.plot([0, max_val], [0, max_val], 'r--', label='Perfect Prediction')
-        ax.set_xlabel('Predicted Cross-Hits')
-        ax.set_ylabel('True Cross-Hits')
-        ax.set_title('Cross-Hit Prediction Accuracy')
+            ax.plot([0, max_val], [0, max_val], "r--", label="Perfect Prediction")
+        ax.set_xlabel("Predicted Cross-Hits")
+        ax.set_ylabel("True Cross-Hits")
+        ax.set_title("Cross-Hit Prediction Accuracy")
         ax.legend()
         plt.tight_layout()
         fig.savefig(os.path.join(self.output_dir, "cross_hit_improvement_scatter.png"), dpi=300)
         plt.close()
-    
+
     def plot_spurious_heatmap(self, spurious_composition: pd.DataFrame) -> None:
         """
         Plot heatmap of spurious composition.
-        
+
         Args:
             spurious_composition: Spurious composition DataFrame
         """
-        if spurious_composition.empty or 'tax_level' not in spurious_composition.columns:
+        if spurious_composition.empty or "tax_level" not in spurious_composition.columns:
             return
-        
+
         summary_df = self._composition_summary(spurious_composition)
         if summary_df.empty:
             return
-        
+
         summary_df = summary_df.sort_index()
         summary_df = summary_df.reindex(sorted(summary_df.columns), axis=1)
-        
+
         plt.figure(figsize=(12, 8))
-        sns.heatmap(summary_df, cmap='viridis', annot=True, fmt=".4f")
-        plt.title('Average Spurious Composition by Tax Level')
-        plt.xlabel('Taxa')
-        plt.ylabel('Tax Level')
+        sns.heatmap(summary_df, cmap="viridis", annot=True, fmt=".4f")
+        plt.title("Average Spurious Composition by Tax Level")
+        plt.xlabel("Taxa")
+        plt.ylabel("Tax Level")
         plt.tight_layout()
         plt.savefig(os.path.join(self.output_dir, "spurious_composition_heatmap.png"))
         plt.close()
-    
+
     def plot_recall_improvement(self, summary_results: pd.DataFrame) -> None:
         """
         Plot histogram of recall improvement.
-        
+
         Args:
             summary_results: Summary results DataFrame
         """
-        required_cols = ['recall_baseline', 'recall_clade_pre_cleanup', 'recall_clade_post_cleanup', 'recall_after_recall_filter', 'recall_fixed_max_12']
+        required_cols = [
+            "recall_baseline",
+            "recall_clade_pre_cleanup",
+            "recall_clade_post_cleanup",
+            "recall_after_recall_filter",
+            "recall_fixed_max_12",
+        ]
         if not all(c in summary_results.columns for c in required_cols):
             return
-        
-        if 'sample' not in summary_results.columns:
+
+        if "sample" not in summary_results.columns:
             return
 
-        recall_df = summary_results[['sample'] + required_cols].copy()
-        recall_df['recall_clade_diff'] = recall_df['recall_clade_pre_cleanup'] - recall_df['recall_baseline']
-        recall_df['recall_clade_diff_clean'] = recall_df['recall_clade_post_cleanup'] - recall_df['recall_baseline']
-        recall_df['recall_clade_diff_predicted_leaves'] = recall_df['recall_after_recall_filter'] - recall_df['recall_baseline']
-        recall_df['recall_method_comparison'] = recall_df['recall_fixed_max_12'] - recall_df['recall_after_recall_filter']
+        recall_df = summary_results[["sample"] + required_cols].copy()
+        recall_df["recall_clade_diff"] = recall_df["recall_clade_pre_cleanup"] - recall_df["recall_baseline"]
+        recall_df["recall_clade_diff_clean"] = recall_df["recall_clade_post_cleanup"] - recall_df["recall_baseline"]
+        recall_df["recall_clade_diff_predicted_leaves"] = (
+            recall_df["recall_after_recall_filter"] - recall_df["recall_baseline"]
+        )
+        recall_df["recall_method_comparison"] = (
+            recall_df["recall_fixed_max_12"] - recall_df["recall_after_recall_filter"]
+        )
 
         plt.figure(figsize=(12, 6))
         recall_improvement_cols = [
-            'recall_clade_diff',
-            'recall_clade_diff_clean',
-            'recall_clade_diff_predicted_leaves',
-            'recall_method_comparison'
+            "recall_clade_diff",
+            "recall_clade_diff_clean",
+            "recall_clade_diff_predicted_leaves",
+            "recall_method_comparison",
         ]
         recall_improvement_labels = [
-            'Clade Recall - Raw Recall',
-            'Clade Recall Clean - Raw Recall',
-            'Clade Recall Predicted Leaves - Raw Recall',
-            'Recall Fixed Filter - Recall Filtered Leaves'
+            "Clade Recall - Raw Recall",
+            "Clade Recall Clean - Raw Recall",
+            "Clade Recall Predicted Leaves - Raw Recall",
+            "Recall Fixed Filter - Recall Filtered Leaves",
         ]
         melted = recall_df.melt(
-            id_vars=['sample'],
-            value_vars=recall_improvement_cols,
-            var_name='Metric',
-            value_name='Recall Improvement'
+            id_vars=["sample"], value_vars=recall_improvement_cols, var_name="Metric", value_name="Recall Improvement"
         )
         label_map = dict(zip(recall_improvement_cols, recall_improvement_labels))
-        melted['Metric'] = melted['Metric'].map(label_map)
+        melted["Metric"] = melted["Metric"].map(label_map)
 
-        sns.boxplot(x='Metric', y='Recall Improvement', data=melted)
-        plt.title('Distribution of Recall Improvement (Boxplot)')
-        plt.xlabel('Recall Improvement')
-        plt.ylabel('Frequency')
+        sns.boxplot(x="Metric", y="Recall Improvement", data=melted)
+        plt.title("Distribution of Recall Improvement (Boxplot)")
+        plt.xlabel("Recall Improvement")
+        plt.ylabel("Frequency")
         plt.legend()
         plt.tight_layout()
         plt.savefig(os.path.join(self.output_dir, "recall_improvement_histogram.png"))
         plt.close()
-    
+
     def plot_probability_metrics(self, summary_results: pd.DataFrame) -> None:
         """
         Plot probability metrics boxplot.
-        
+
         Args:
             summary_results: Summary results DataFrame
         """
-        required_cols = ['recall_baseline', 'purity', 'precision_best_match', 'recall_clade_pre_cleanup', 'precision_clade_full', 'recall_clade_post_cleanup', 'precision_clade_post_cleanup', 'precision_clade_fixed']
+        required_cols = [
+            "recall_baseline",
+            "purity",
+            "precision_best_match",
+            "recall_clade_pre_cleanup",
+            "precision_clade_full",
+            "recall_clade_post_cleanup",
+            "precision_clade_post_cleanup",
+            "precision_clade_fixed",
+        ]
         if not all(c in summary_results.columns for c in required_cols):
             return
-        
-        if 'sample' not in summary_results.columns:
+
+        if "sample" not in summary_results.columns:
             return
-        
-        precisions_df = summary_results[['sample', 'recall_baseline', 'purity', 
-                                         'precision_best_match', 'recall_clade_pre_cleanup', 'precision_clade_full', 'recall_clade_post_cleanup', 'precision_clade_post_cleanup','precision_clade_fixed']].copy()
+
+        precisions_df = summary_results[
+            [
+                "sample",
+                "recall_baseline",
+                "purity",
+                "precision_best_match",
+                "recall_clade_pre_cleanup",
+                "precision_clade_full",
+                "recall_clade_post_cleanup",
+                "precision_clade_post_cleanup",
+                "precision_clade_fixed",
+            ]
+        ].copy()
         precisions_df = precisions_df.drop_duplicates()
-        
-        precisions_df['Prob_Find_any'] = precisions_df['recall_baseline'] * precisions_df['purity']
-        precisions_df['Prob_Find_true'] = precisions_df['recall_baseline'] * precisions_df['precision_best_match']
-        precisions_df['Prob_Find_true_clade_full'] = precisions_df['recall_clade_pre_cleanup'] * precisions_df['precision_clade_full']
-        precisions_df['Prob_Find_true_clade_clean'] = precisions_df['recall_clade_post_cleanup'] * precisions_df['precision_clade_post_cleanup']
 
-        prob_cols = ['Prob_Find_any', 'Prob_Find_true', 'Prob_Find_true_clade_full', 'Prob_Find_true_clade_clean']
-
-        melted = precisions_df.melt(
-            id_vars=['sample'], 
-            value_vars=prob_cols, 
-            var_name='Metric', 
-            value_name='Value'
+        precisions_df["Prob_Find_any"] = precisions_df["recall_baseline"] * precisions_df["purity"]
+        precisions_df["Prob_Find_true"] = precisions_df["recall_baseline"] * precisions_df["precision_best_match"]
+        precisions_df["Prob_Find_true_clade_full"] = (
+            precisions_df["recall_clade_pre_cleanup"] * precisions_df["precision_clade_full"]
         )
-        
+        precisions_df["Prob_Find_true_clade_clean"] = (
+            precisions_df["recall_clade_post_cleanup"] * precisions_df["precision_clade_post_cleanup"]
+        )
+
+        prob_cols = ["Prob_Find_any", "Prob_Find_true", "Prob_Find_true_clade_full", "Prob_Find_true_clade_clean"]
+
+        melted = precisions_df.melt(id_vars=["sample"], value_vars=prob_cols, var_name="Metric", value_name="Value")
+
         plt.figure(figsize=(12, 8))
-        sns.violinplot(x='Metric', y='Value', data=melted)
-        plt.title('Comparison of Probability Metrics Across Datasets')
-        plt.ylabel('Probability')
-        plt.xlabel('Metric')
+        sns.violinplot(x="Metric", y="Value", data=melted)
+        plt.title("Comparison of Probability Metrics Across Datasets")
+        plt.ylabel("Probability")
+        plt.xlabel("Metric")
         plt.xticks(rotation=45)
         plt.tight_layout()
         plt.savefig(os.path.join(self.output_dir, "probability_metrics_boxplot.png"))
         plt.close()
-    
+
     def plot_filtering_benefit(self, summary_results: pd.DataFrame) -> None:
         """
         Plot coverage retention vs filtering for each sample.
-        
+
         Args:
             summary_results: Summary results DataFrame with filtering metrics.
         """
-        required_cols = ['prop_coverage_above_cutoff', 'prop_coverage_below_cutoff']
+        required_cols = ["prop_coverage_above_cutoff", "prop_coverage_below_cutoff"]
         if not all(c in summary_results.columns for c in required_cols):
             return
-        
-        if 'sample' not in summary_results.columns:
+
+        if "sample" not in summary_results.columns:
             return
-        
+
         # Get unique samples with filtering metrics
-        filter_df = summary_results[['sample', 'prop_coverage_above_cutoff', 'prop_coverage_below_cutoff']].drop_duplicates()
-        
+        filter_df = summary_results[
+            ["sample", "prop_coverage_above_cutoff", "prop_coverage_below_cutoff"]
+        ].drop_duplicates()
+
         if filter_df.empty:
             return
-        
+
         fig, ax = plt.subplots(figsize=(10, 6))
-        
-        samples = filter_df['sample'].tolist()
-        kept = filter_df['prop_coverage_above_cutoff'].tolist()
-        lost = filter_df['prop_coverage_below_cutoff'].tolist()
-        
+
+        samples = filter_df["sample"].tolist()
+        kept = filter_df["prop_coverage_above_cutoff"].tolist()
+        lost = filter_df["prop_coverage_below_cutoff"].tolist()
+
         y_pos = range(len(samples))
-        
-        ax.barh(y_pos, kept, label='Coverage retained (kept)', color='steelblue')
-        ax.barh(y_pos, lost, left=kept, label='Coverage lost (filtered)', color='coral')
-        
+
+        ax.barh(y_pos, kept, label="Coverage retained (kept)", color="steelblue")
+        ax.barh(y_pos, lost, left=kept, label="Coverage lost (filtered)", color="coral")
+
         ax.set_yticks(y_pos)
         ax.set_yticklabels(samples)
-        ax.set_xlabel('Proportion of references with coverage')
-        ax.set_title('Filtering Benefit: Coverage Retained vs Lost\n(Higher kept = more time saved with minimal sensitivity loss)')
-        ax.legend(loc='lower right')
+        ax.set_xlabel("Proportion of references with coverage")
+        ax.set_title(
+            "Filtering Benefit: Coverage Retained vs Lost\n(Higher kept = more time saved with minimal sensitivity loss)"
+        )
+        ax.legend(loc="lower right")
         ax.set_xlim(0, 1)
-        
+
         plt.tight_layout()
         plt.savefig(os.path.join(self.output_dir, "filtering_benefit.png"), dpi=150)
         plt.close()
@@ -461,30 +500,30 @@ class ResultVisualizer:
     def _composition_summary(self, composition_df: pd.DataFrame) -> pd.DataFrame:
         """
         Generate composition summary.
-        
+
         Args:
             composition_df: Composition DataFrame
-            
+
         Returns:
             Summary DataFrame
         """
-        if 'tax_level' not in composition_df.columns:
+        if "tax_level" not in composition_df.columns:
             return pd.DataFrame()
-        
+
         summary_list = []
-        for tax_level in composition_df['tax_level'].unique():
-            subset = composition_df[composition_df['tax_level'] == tax_level]
-            mean_values = subset.drop(columns=['taxid', 'tax_level', 'data_set'], errors='ignore').sum()
+        for tax_level in composition_df["tax_level"].unique():
+            subset = composition_df[composition_df["tax_level"] == tax_level]
+            mean_values = subset.drop(columns=["taxid", "tax_level", "data_set"], errors="ignore").sum()
             mean_values = pd.DataFrame(mean_values).T
-            mean_values.insert(0, 'tax_level', tax_level)
+            mean_values.insert(0, "tax_level", tax_level)
             summary_list.append(mean_values)
-        
+
         if not summary_list:
             return pd.DataFrame()
-        
+
         summary_list = pd.concat(summary_list, ignore_index=True)
         summary_list = summary_list.fillna(0)
-        summary_list.set_index('tax_level', inplace=True)
+        summary_list.set_index("tax_level", inplace=True)
         # divide by rowsum, 0 if rowsum == 0
         summary_list = summary_list.div(summary_list.sum(axis=1), axis=0).fillna(0)
 
@@ -493,81 +532,85 @@ class ResultVisualizer:
     # ── Recall modeller evaluation plots ──
 
     def plot_recall_error_boxplot(self, summary_results: pd.DataFrame) -> None:
-        error_cols = [c for c in summary_results.columns if c.startswith('recall_metric_error_index_recall_')]
+        error_cols = [c for c in summary_results.columns if c.startswith("recall_metric_error_index_recall_")]
         if not error_cols:
             return
         melted = summary_results.melt(
-            id_vars=['data_set'],
-            value_vars=error_cols,
-            var_name='Division', value_name='Error'
+            id_vars=["data_set"], value_vars=error_cols, var_name="Division", value_name="Error"
         )
-        melted['Division'] = melted['Division'].str.replace('recall_metric_error_', '')
+        melted["Division"] = melted["Division"].str.replace("recall_metric_error_", "")
         plt.figure(figsize=(12, 6))
-        sns.boxplot(x='Division', y='Error', data=melted)
-        plt.axhline(0, color='red', linestyle='--', alpha=0.5)
-        plt.title('Per-Division Recall Prediction Error (Predicted - True)')
-        plt.ylabel('Error')
-        plt.xlabel('Recall Division')
+        sns.boxplot(x="Division", y="Error", data=melted)
+        plt.axhline(0, color="red", linestyle="--", alpha=0.5)
+        plt.title("Per-Division Recall Prediction Error (Predicted - True)")
+        plt.ylabel("Error")
+        plt.xlabel("Recall Division")
         plt.tight_layout()
         plt.savefig(os.path.join(self.output_dir, "recall_error_boxplot.png"))
         plt.close()
 
     def plot_recall_rmse_distribution(self, summary_results: pd.DataFrame) -> None:
-        col = 'recall_metric_per_division_recall_rmse'
+        col = "recall_metric_per_division_recall_rmse"
         if col not in summary_results.columns:
             return
         plt.figure(figsize=(10, 6))
         sns.histplot(summary_results[col], bins=20, kde=True)
-        plt.xlabel('Per-Division Recall RMSE')
-        plt.ylabel('Frequency')
-        plt.title('Distribution of Per-Division Recall RMSE Across Datasets')
+        plt.xlabel("Per-Division Recall RMSE")
+        plt.ylabel("Frequency")
+        plt.title("Distribution of Per-Division Recall RMSE Across Datasets")
         plt.tight_layout()
         plt.savefig(os.path.join(self.output_dir, "recall_rmse_distribution.png"))
         plt.close()
 
     def plot_last_best_match_vs_rmse(self, summary_results: pd.DataFrame) -> None:
-        rmse_col = 'recall_metric_per_division_recall_rmse'
-        rel_col = 'recall_metric_last_best_match_relindex'
+        rmse_col = "recall_metric_per_division_recall_rmse"
+        rel_col = "recall_metric_last_best_match_relindex"
         if rmse_col not in summary_results.columns or rel_col not in summary_results.columns:
             return
         plt.figure(figsize=(10, 6))
         scatter = plt.scatter(
-            summary_results[rel_col], summary_results[rmse_col],
-            c=summary_results['recall_after_recall_filter'] if 'recall_after_recall_filter' in summary_results.columns else 'steelblue',
-            cmap='viridis', alpha=0.7, edgecolors='w'
+            summary_results[rel_col],
+            summary_results[rmse_col],
+            c=summary_results["recall_after_recall_filter"]
+            if "recall_after_recall_filter" in summary_results.columns
+            else "steelblue",
+            cmap="viridis",
+            alpha=0.7,
+            edgecolors="w",
         )
-        if 'recall_after_recall_filter' in summary_results.columns:
-            plt.colorbar(scatter, label='Recall after recall filter')
-        plt.xlabel('Last Best Match Relindex')
-        plt.ylabel('Per-Division Recall RMSE')
-        plt.title('Last Best Match Relindex vs Recall RMSE')
+        if "recall_after_recall_filter" in summary_results.columns:
+            plt.colorbar(scatter, label="Recall after recall filter")
+        plt.xlabel("Last Best Match Relindex")
+        plt.ylabel("Per-Division Recall RMSE")
+        plt.title("Last Best Match Relindex vs Recall RMSE")
         plt.tight_layout()
         plt.savefig(os.path.join(self.output_dir, "last_best_match_vs_rmse.png"))
         plt.close()
 
     def plot_cutoff_error_histogram(self, summary_results: pd.DataFrame) -> None:
-        col = 'recall_metric_cutoff_error'
+        col = "recall_metric_cutoff_error"
         if col not in summary_results.columns:
             return
         plt.figure(figsize=(10, 6))
         sns.histplot(summary_results[col], bins=20, kde=True)
-        plt.xlabel('Cutoff Error (predicted_k_min - actual_k_min)')
-        plt.ylabel('Frequency')
-        plt.title('Distribution of Cutoff Prediction Error')
+        plt.xlabel("Cutoff Error (predicted_k_min - actual_k_min)")
+        plt.ylabel("Frequency")
+        plt.title("Distribution of Cutoff Prediction Error")
         plt.tight_layout()
         plt.savefig(os.path.join(self.output_dir, "cutoff_error_histogram.png"))
         plt.close()
 
     def plot_cutoff_confusion_matrix(self, summary_results: pd.DataFrame) -> None:
-        pred_col = 'recall_metric_predicted_k_min'
-        actual_col = 'recall_metric_actual_k_min'
+        pred_col = "recall_metric_predicted_k_min"
+        actual_col = "recall_metric_actual_k_min"
         if pred_col not in summary_results.columns or actual_col not in summary_results.columns:
             return
-        ct = pd.crosstab(summary_results[actual_col], summary_results[pred_col],
-                         rownames=['Actual'], colnames=['Predicted'])
+        ct = pd.crosstab(
+            summary_results[actual_col], summary_results[pred_col], rownames=["Actual"], colnames=["Predicted"]
+        )
         plt.figure(figsize=(8, 6))
-        sns.heatmap(ct, annot=True, fmt='d', cmap='Blues')
-        plt.title('Confusion Matrix: Predicted vs Actual k_min')
+        sns.heatmap(ct, annot=True, fmt="d", cmap="Blues")
+        plt.title("Confusion Matrix: Predicted vs Actual k_min")
         plt.tight_layout()
         plt.savefig(os.path.join(self.output_dir, "cutoff_confusion_matrix.png"))
         plt.close()
@@ -575,17 +618,17 @@ class ResultVisualizer:
     def plot_clade_precision_by_taxlevel(self, summary_results: pd.DataFrame, tax_level: str) -> None:
         """
         Plot clade precision by taxonomic level.
-        
+
         Args:
             summary_results: Summary results DataFrame
             tax_level: Taxonomic level column name
         """
-        if tax_level not in summary_results.columns or 'raw_pred_accuracy' not in summary_results.columns:
+        if tax_level not in summary_results.columns or "raw_pred_accuracy" not in summary_results.columns:
             return
-        
+
         plt.figure(figsize=(10, 8))
-        plt.ylabel('Raw Precision (Post)')
-        sns.boxplot(x=tax_level, y='raw_pred_accuracy', data=summary_results)
+        plt.ylabel("Raw Precision (Post)")
+        sns.boxplot(x=tax_level, y="raw_pred_accuracy", data=summary_results)
         plt.xticks(rotation=45)
         plt.grid(True)
         plt.tight_layout()
@@ -599,36 +642,36 @@ class ResultVisualizer:
     ) -> None:
         """
         Plot mutation rate vs cross-hit counts.
-        
+
         Args:
             input_data: Input table DataFrame with mutation_rate column
             cross_hit_data: Cross-hit predictions DataFrame
         """
-        if input_data.empty or 'mutation_rate' not in input_data.columns:
+        if input_data.empty or "mutation_rate" not in input_data.columns:
             return
-        
+
         merged = input_data.merge(
             cross_hit_data,
-            left_on='taxid',
-            right_on='taxid',
-            how='left',
+            left_on="taxid",
+            right_on="taxid",
+            how="left",
         )
-        
-        cross_hit_counts = merged.groupby('mutation_rate').size().reset_index(name='cross_hit_count')
-        
+
+        cross_hit_counts = merged.groupby("mutation_rate").size().reset_index(name="cross_hit_count")
+
         plt.figure(figsize=(10, 6))
         sns.scatterplot(
             data=cross_hit_counts,
-            x='mutation_rate',
-            y='cross_hit_count',
-            size='cross_hit_count',
+            x="mutation_rate",
+            y="cross_hit_count",
+            size="cross_hit_count",
             sizes=(50, 400),
-            color='steelblue',
+            color="steelblue",
             alpha=0.7,
         )
-        plt.xlabel('Mutation Rate')
-        plt.ylabel('Cross-Hit Count')
-        plt.title('Mutation Rate vs Cross-Hit Counts')
+        plt.xlabel("Mutation Rate")
+        plt.ylabel("Cross-Hit Count")
+        plt.title("Mutation Rate vs Cross-Hit Counts")
         plt.grid(True, alpha=0.3)
         plt.tight_layout()
         plt.savefig(os.path.join(self.output_dir, "mutation_rate_vs_crosshits.png"))
@@ -641,41 +684,39 @@ class ResultVisualizer:
     ) -> None:
         """
         Plot cluster size distribution for matched taxids from input.
-        
+
         Args:
             matched_assemblies: Matched assemblies DataFrame with cluster info
             input_data: Input table DataFrame with taxid column
         """
         if matched_assemblies.empty or input_data.empty:
             return
-        
-        input_taxids = set(input_data['taxid'].unique())
-        
-        matched_filtered = matched_assemblies[
-            matched_assemblies['taxid'].isin(input_taxids)
-        ]
-        
+
+        input_taxids = set(input_data["taxid"].unique())
+
+        matched_filtered = matched_assemblies[matched_assemblies["taxid"].isin(input_taxids)]
+
         if matched_filtered.empty:
             return
-        
-        cluster_sizes = matched_filtered.groupby('taxid').size().reset_index(name='cluster_size')
-        
+
+        cluster_sizes = matched_filtered.groupby("taxid").size().reset_index(name="cluster_size")
+
         plt.figure(figsize=(12, 6))
-        
+
         plt.subplot(1, 2, 1)
-        sns.histplot(data=cluster_sizes, x='cluster_size', bins=30, kde=True, color='coral')
-        plt.xlabel('Cluster Size (leaves per taxid)')
-        plt.ylabel('Frequency')
-        plt.title('Distribution of Cluster Sizes')
+        sns.histplot(data=cluster_sizes, x="cluster_size", bins=30, kde=True, color="coral")
+        plt.xlabel("Cluster Size (leaves per taxid)")
+        plt.ylabel("Frequency")
+        plt.title("Distribution of Cluster Sizes")
         plt.grid(True, alpha=0.3)
-        
+
         plt.subplot(1, 2, 2)
-        top_clusters = cluster_sizes.nlargest(20, 'cluster_size')
-        sns.barplot(data=top_clusters, x='cluster_size', y='taxid', palette='viridis')
-        plt.xlabel('Cluster Size')
-        plt.ylabel('Taxid')
-        plt.title('Top 20 Largest Clusters')
-        
+        top_clusters = cluster_sizes.nlargest(20, "cluster_size")
+        sns.barplot(data=top_clusters, x="cluster_size", y="taxid", palette="viridis")
+        plt.xlabel("Cluster Size")
+        plt.ylabel("Taxid")
+        plt.title("Top 20 Largest Clusters")
+
         plt.tight_layout()
         plt.savefig(os.path.join(self.output_dir, "cluster_size_distribution.png"))
         plt.close()
@@ -683,21 +724,21 @@ class ResultVisualizer:
     def generate_html_report(self, results: BatchEvaluationResult) -> str:
         """
         Generate HTML report embedding all plots.
-        
+
         Args:
             results: BatchEvaluationResult with evaluation data
-        
+
         Returns:
             Path to generated HTML file
         """
         from datetime import datetime
-        
+
         self.plot_all(results)
-        
+
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
-        stats = results.get_summary_stats() if hasattr(results, 'get_summary_stats') else {}
-        
+
+        stats = results.get_summary_stats() if hasattr(results, "get_summary_stats") else {}
+
         html_content = f"""<!DOCTYPE html>
 <html>
 <head>
@@ -761,7 +802,7 @@ class ResultVisualizer:
     
     <h2>Summary Metrics</h2>
 """
-        
+
         if stats:
             html_content += '<div class="metrics">\n'
             for metric, values in stats.items():
@@ -772,11 +813,11 @@ class ResultVisualizer:
         <div class="metric-label">{metric} ({stat_name})</div>
         <div class="metric-value">{value:.4f}</div>
     </div>\n"""
-            html_content += '</div>\n'
-        
+            html_content += "</div>\n"
+
         plot_files = [
             "overall_precision_histogram.png",
-            "precision_metrics_boxplot.png", 
+            "precision_metrics_boxplot.png",
             "recall_metrics_boxplot.png",
             "recall_improvement_histogram.png",
             "probability_metrics_boxplot.png",
@@ -787,7 +828,7 @@ class ResultVisualizer:
             "mutation_rate_vs_crosshits.png",
             "cluster_size_distribution.png",
         ]
-        
+
         html_content += """
     <h2>Visualizations</h2>
 """
@@ -801,25 +842,26 @@ class ResultVisualizer:
         <img src="{plot_file}" alt="{plot_title}"/>
     </div>
 """
-        
-        html_content += f"""
+
+        html_content += """
     <div class="footer">
         <p>Metagenomics Evaluation Pipeline</p>
     </div>
 </body>
 </html>
 """
-        
+
         output_path = os.path.join(self.output_dir, "evaluation_report.html")
-        with open(output_path, 'w') as f:
+        with open(output_path, "w") as f:
             f.write(html_content)
-        
+
         return output_path
 
 
 try:
     import plotly.express as px
     import plotly.graph_objects as go
+
     PLOTLY_AVAILABLE = True
 except ImportError:
     PLOTLY_AVAILABLE = False
@@ -828,58 +870,62 @@ except ImportError:
 class PlotlyVisualizer:
     """
     Interactive visualization using Plotly.
-    
+
     Requires plotly to be installed.
     """
-    
+
     def __init__(self, output_dir: str):
         self.output_dir = output_dir
         os.makedirs(output_dir, exist_ok=True)
-    
+
     def plot_precision_distribution(self, test_results: pd.DataFrame) -> go.Figure:
         """Create interactive precision distribution histogram."""
         if not PLOTLY_AVAILABLE or test_results.empty:
             return None
-        
+
         fig = px.histogram(
-            test_results, 
-            x='precision_clade_post',
+            test_results,
+            x="precision_clade_post",
             nbins=20,
-            title='Distribution of Overall Precision',
-            labels={'overall_precision': 'Precision'}
+            title="Distribution of Overall Precision",
+            labels={"overall_precision": "Precision"},
         )
         fig.update_layout(bargap=0.1)
         return fig
-    
+
     def plot_recall_comparison(self, summary: pd.DataFrame) -> go.Figure:
         """Create interactive recall comparison box plot."""
         if not PLOTLY_AVAILABLE or summary.empty:
             return None
 
-        recall_cols = ['recall_baseline', 'recall_baseline_cov_filtered', 'recall_clade_pre_cleanup', 'recall_clade_post_cleanup']
+        recall_cols = [
+            "recall_baseline",
+            "recall_baseline_cov_filtered",
+            "recall_clade_pre_cleanup",
+            "recall_clade_post_cleanup",
+        ]
         available = [c for c in recall_cols if c in summary.columns]
-        
+
         if not available:
             return None
-        
-        melted = summary.melt(id_vars=['sample'], value_vars=available, 
-                            var_name='Metric', value_name='Value')
-        
-        fig = px.box(melted, x='Metric', y='Value', title='Recall Metrics Comparison')
+
+        melted = summary.melt(id_vars=["sample"], value_vars=available, var_name="Metric", value_name="Value")
+
+        fig = px.box(melted, x="Metric", y="Value", title="Recall Metrics Comparison")
         return fig
-    
+
     def plot_cross_hit_heatmap(self, composition: pd.DataFrame) -> go.Figure:
         """Create interactive cross-hit composition heatmap."""
         if not PLOTLY_AVAILABLE or composition.empty:
             return None
-        
+
         fig = px.imshow(
-            composition.select_dtypes(include='number').T,
-            title='Cross-Hit Composition',
-            labels=dict(x='Taxa', y='Tax Level', color='Value')
+            composition.select_dtypes(include="number").T,
+            title="Cross-Hit Composition",
+            labels=dict(x="Taxa", y="Tax Level", color="Value"),
         )
         return fig
-    
+
     def save_interactive(self, results: BatchEvaluationResult) -> None:
         """Save all plots as interactive HTML."""
         self.plot_precision_distribution(results.test_results)
@@ -890,103 +936,109 @@ class PlotlyVisualizer:
 class ReportGenerator:
     """
     Generates HTML reports from evaluation results.
-    
+
     Combines static plots with evaluation metrics into a
     comprehensive HTML report.
     """
-    
-    def __init__(self, output_dir: str, template: Optional[str] = None):
+
+    def __init__(self, output_dir: str, template: str | None = None):
         self.output_dir = output_dir
         os.makedirs(output_dir, exist_ok=True)
         self.template = template or self._default_template()
         self.sections: list[dict] = []
-    
-    def add_plot(self, title: str, plot_path: str, description: str = "") -> 'ReportGenerator':
+
+    def add_plot(self, title: str, plot_path: str, description: str = "") -> "ReportGenerator":
         """Add a plot section to the report."""
-        self.sections.append({
-            'type': 'plot',
-            'title': title,
-            'path': plot_path,
-            'description': description,
-        })
+        self.sections.append(
+            {
+                "type": "plot",
+                "title": title,
+                "path": plot_path,
+                "description": description,
+            }
+        )
         return self
-    
-    def add_metrics(self, title: str, metrics: dict, description: str = "") -> 'ReportGenerator':
+
+    def add_metrics(self, title: str, metrics: dict, description: str = "") -> "ReportGenerator":
         """Add a metrics section to the report."""
-        self.sections.append({
-            'type': 'metrics',
-            'title': title,
-            'metrics': metrics,
-            'description': description,
-        })
+        self.sections.append(
+            {
+                "type": "metrics",
+                "title": title,
+                "metrics": metrics,
+                "description": description,
+            }
+        )
         return self
-    
-    def add_text(self, title: str, content: str) -> 'ReportGenerator':
+
+    def add_text(self, title: str, content: str) -> "ReportGenerator":
         """Add a text section to the report."""
-        self.sections.append({
-            'type': 'text',
-            'title': title,
-            'content': content,
-        })
+        self.sections.append(
+            {
+                "type": "text",
+                "title": title,
+                "content": content,
+            }
+        )
         return self
-    
+
     def generate(self, output_path: str) -> None:
         """Generate HTML report."""
         html = self.template.format(
             title="Evaluation Report",
-            generated_at=pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S'),
+            generated_at=pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"),
             sections=self._render_sections(),
         )
-        
-        with open(output_path, 'w') as f:
+
+        with open(output_path, "w") as f:
             f.write(html)
-    
+
     def _render_sections(self) -> str:
         """Render all sections as HTML."""
         html_parts = []
         for section in self.sections:
-            if section['type'] == 'plot':
+            if section["type"] == "plot":
                 html_parts.append(self._render_plot(section))
-            elif section['type'] == 'metrics':
+            elif section["type"] == "metrics":
                 html_parts.append(self._render_metrics(section))
-            elif section['type'] == 'text':
+            elif section["type"] == "text":
                 html_parts.append(self._render_text(section))
-        return '\n'.join(html_parts)
-    
+        return "\n".join(html_parts)
+
     def _render_plot(self, section: dict) -> str:
-        rel_path = os.path.relpath(section['path'], self.output_dir)
+        rel_path = os.path.relpath(section["path"], self.output_dir)
         return f"""
         <div class="section">
-            <h2>{section['title']}</h2>
-            <p>{section.get('description', '')}</p>
-            <img src="{rel_path}" alt="{section['title']}" />
+            <h2>{section["title"]}</h2>
+            <p>{section.get("description", "")}</p>
+            <img src="{rel_path}" alt="{section["title"]}" />
         </div>
         """
-    
+
     def _render_metrics(self, section: dict) -> str:
         rows = []
-        for key, value in section['metrics'].items():
+        for key, value in section["metrics"].items():
             rows.append(f"<tr><td>{key}</td><td>{value}</td></tr>")
-        
+
         return f"""
         <div class="section">
-            <h2>{section['title']}</h2>
-            <p>{section.get('description', '')}</p>
+            <h2>{section["title"]}</h2>
+            <p>{section.get("description", "")}</p>
             <table>
                 <thead><tr><th>Metric</th><th>Value</th></tr></thead>
-                <tbody>{''.join(rows)}</tbody>
+                <tbody>{"".join(rows)}</tbody>
             </table>
         </div>
         """
-    
+
     def _render_text(self, section: dict) -> str:
         return f"""
         <div class="section">
-            <h2>{section['title']}</h2>
-            <p>{section['content']}</p>
+            <h2>{section["title"]}</h2>
+            <p>{section["content"]}</p>
         </div>
         """
-    
+
     def _default_template(self) -> str:
         return """<!DOCTYPE html>
 <html>
@@ -1014,42 +1066,44 @@ class ReportGenerator:
 def generate_report(
     results: BatchEvaluationResult,
     output_dir: str,
-    plot_dir: Optional[str] = None,
+    plot_dir: str | None = None,
 ) -> str:
     """
     Convenience function to generate a complete evaluation report.
-    
+
     Args:
         results: Evaluation results
         output_dir: Output directory for report
         plot_dir: Directory containing plots (defaults to output_dir)
-    
+
     Returns:
         Path to generated HTML report
     """
     if plot_dir is None:
         plot_dir = output_dir
-    
+
     visualizer = ResultVisualizer(plot_dir)
     visualizer.plot_all(results)
-    
+
     report_gen = ReportGenerator(plot_dir)
-    
+
     stats = results.get_summary_stats()
     if stats:
         flat_stats = {}
         for metric, values in stats.items():
             for stat_name, value in values.items():
                 flat_stats[f"{metric}_{stat_name}"] = value
-        
+
         report_gen.add_metrics("Summary Statistics", flat_stats)
-    
-    report_gen.add_text("Overview", 
+
+    report_gen.add_text(
+        "Overview",
         f"Evaluated {results.get_dataset_count()} datasets. "
         f"Success: {results.metadata.get('successful', 0)}, "
-        f"Failed: {results.metadata.get('failed', 0)}")
-    
+        f"Failed: {results.metadata.get('failed', 0)}",
+    )
+
     output_path = os.path.join(output_dir, "evaluation_report.html")
     report_gen.generate(output_path)
-    
+
     return output_path

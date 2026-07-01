@@ -1,6 +1,5 @@
-import os
-from pathlib import Path
 import logging
+import os
 
 PROJECT_NAME = "INSaFLU_ML_API"
 RANDOM_SEED = 42
@@ -16,26 +15,24 @@ PROJECT_MODELS = ["composition", "televir_clustering"]
 COMPOSITION_MODEL_FILE = "composition_xgb_bundle.pkl"
 
 RECALL_MODEL_VARIANTS = {
-    "xgb_direct": {"file": "direct_xgb_bundle.pkl",    "cls": "DirectXGBRecallModeller"},
-    "xgb_multi":  {"file": "recall_xgb_bundle.pkl",     "cls": "RecallModeller"},
-    "gp_clf":     {"file": "recall_gp_clf_pipeline.pkl", "cls": "GPCLFRecallModeller"},
+    "xgb_direct": {"file": "direct_xgb_bundle.pkl", "cls": "DirectXGBRecallModeller"},
+    "xgb_multi": {"file": "recall_xgb_bundle.pkl", "cls": "RecallModeller"},
+    "gp_clf": {"file": "recall_gp_clf_pipeline.pkl", "cls": "GPCLFRecallModeller"},
 }
 
 
 def registry_name(model_type):
     return f"{PROJECT_NAME}_{model_type}"
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+
 
 def get_logger(name):
     return logging.getLogger(name)
 
 
 class ModelFile:
-
     project_files = {
         **{f"recall_{k}": v["file"] for k, v in RECALL_MODEL_VARIANTS.items()},
         "composition": COMPOSITION_MODEL_FILE,

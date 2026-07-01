@@ -1,14 +1,13 @@
 import sys
-import os
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-import pandas as pd
-import numpy as np
 import joblib
+import pandas as pd
+from sklearn.metrics import accuracy_score, classification_report, roc_auc_score
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, roc_auc_score, classification_report
+
 from metagenomics_utils.overlap_manager.om_models import ClusteringPipeline
 
 DATA_PATH = Path(__file__).parent / "training_results_cache.parquet"
@@ -16,13 +15,25 @@ MODELS_DIR = Path(__file__).parent / "models"
 MODEL_SAVE_PATH = MODELS_DIR / "clustering_xgb_bundle.pkl"
 
 TAXON_COLS = [
-    "Baculoviridae", "Coronaviridae", "Flaviviridae", "Herelleviridae",
-    "Orthoherpesviridae", "Papillomaviridae", "Peduoviridae", "Picornaviridae",
-    "Rhabdoviridae", "Schitoviridae", "Straboviridae", "unclassified",
+    "Baculoviridae",
+    "Coronaviridae",
+    "Flaviviridae",
+    "Herelleviridae",
+    "Orthoherpesviridae",
+    "Papillomaviridae",
+    "Peduoviridae",
+    "Picornaviridae",
+    "Rhabdoviridae",
+    "Schitoviridae",
+    "Straboviridae",
+    "unclassified",
 ]
 
 NUMERIC_COLS = [
-    "taxonomic_diversity", "n_leaves", "proportion_shared_hits", "proportion_unique_hits",
+    "taxonomic_diversity",
+    "n_leaves",
+    "proportion_shared_hits",
+    "proportion_unique_hits",
 ]
 
 FEATURE_NAMES = NUMERIC_COLS + TAXON_COLS
@@ -49,7 +60,11 @@ def train():
     print(f"Target distribution:\n{y.value_counts()}")
 
     X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42, stratify=y,
+        X,
+        y,
+        test_size=0.2,
+        random_state=42,
+        stratify=y,
     )
 
     pipeline = ClusteringPipeline(
@@ -65,7 +80,7 @@ def train():
 
     print(f"\nTest accuracy: {accuracy_score(y_test, y_pred):.4f}")
     print(f"Test ROC-AUC: {roc_auc_score(y_test, y_prob):.4f}")
-    print(f"\nClassification report:")
+    print("\nClassification report:")
     print(classification_report(y_test, y_pred, target_names=["not_cluster", "is_cluster"]))
 
     joblib.dump(pipeline, str(MODEL_SAVE_PATH))

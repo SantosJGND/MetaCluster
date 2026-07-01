@@ -76,6 +76,11 @@ output/
 models/
 output_study/
 
+# Pipeline artifacts
+nextflow_dag.html
+clade_precision_diagnostics.csv
+local_evaluation/
+
 # OS
 .DS_Store
 Thumbs.db

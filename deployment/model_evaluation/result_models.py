@@ -33,11 +33,11 @@ JSON Schema:
 }
 """
 
-from dataclasses import dataclass, field, asdict
-from typing import Optional, Any, List
-import pandas as pd
 import json
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
+
+import pandas as pd
 
 
 @dataclass
@@ -49,16 +49,16 @@ class PrecisionMetrics:
     clade_precision_full: float = 0.0
     clade_precision_post: float = 0.0
     clade_precision_fixed: float = 0.0
-    
+
     def to_dict(self) -> dict:
         return asdict(self)
-    
+
     @classmethod
-    def from_dict(cls, data: dict) -> 'PrecisionMetrics':
+    def from_dict(cls, data: dict) -> "PrecisionMetrics":
         return cls(**data)
 
 
-@dataclass  
+@dataclass
 class RecallMetrics:
     recall_raw: float = 0.0
     recall_cov_filtered: float = 0.0
@@ -70,9 +70,9 @@ class RecallMetrics:
 
     def to_dict(self) -> dict:
         return asdict(self)
-    
+
     @classmethod
-    def from_dict(cls, data: dict) -> 'RecallMetrics':
+    def from_dict(cls, data: dict) -> "RecallMetrics":
         return cls(**data)
 
 
@@ -85,17 +85,17 @@ class CrossHitMetrics:
     cross_hit_f1: float = 0.0
     total_true_cross_hits: int = 0
     total_cross_hit_reads_mapped: int = 0
-    cross_hit_counts_per_class: Optional[List[dict]] = None
-    cross_hit_reads_per_class: Optional[List[dict]] = None
-    spurious_hit_counts_per_class: Optional[List[dict]] = None
-    spurious_hit_reads_per_class: Optional[List[dict]] = None
-    reads_simulated_per_class: Optional[List[dict]] = None
+    cross_hit_counts_per_class: list[dict] | None = None
+    cross_hit_reads_per_class: list[dict] | None = None
+    spurious_hit_counts_per_class: list[dict] | None = None
+    spurious_hit_reads_per_class: list[dict] | None = None
+    reads_simulated_per_class: list[dict] | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)
-    
+
     @classmethod
-    def from_dict(cls, data: dict) -> 'CrossHitMetrics':
+    def from_dict(cls, data: dict) -> "CrossHitMetrics":
         return cls(**data)
 
 
@@ -103,7 +103,7 @@ class CrossHitMetrics:
 class DatasetResult:
     data_set: str
     input_df: pd.DataFrame
-    sample: str = ''
+    sample: str = ""
     input_taxid_count: int = 0
     output_raw: int = 0
     output_cov_filtered: int = 0
@@ -111,68 +111,67 @@ class DatasetResult:
     predicted_clades_post: int = 0
     predicted_clades_fixed: int = 0
 
-    input_composition: Optional[dict] = None
-    input_read_counts: Optional[List[dict]] = None
-    reads_simulated_per_class: Optional[List[dict]] = None
+    input_composition: dict | None = None
+    input_read_counts: list[dict] | None = None
+    reads_simulated_per_class: list[dict] | None = None
     precision: PrecisionMetrics = field(default_factory=PrecisionMetrics)
     recall: RecallMetrics = field(default_factory=RecallMetrics)
     cross_hit: CrossHitMetrics = field(default_factory=CrossHitMetrics)
-    
-    spurious_composition: Optional[dict] = None
-    cross_hit_composition: Optional[dict] = None
-    
+
+    spurious_composition: dict | None = None
+    cross_hit_composition: dict | None = None
+
     def to_dict(self) -> dict:
         result = {
-            'data_set': self.data_set,
-            'input_df': self.input_df.to_dict(orient='records'),
-            'sample': self.sample,
-            'input_taxid_count': self.input_taxid_count,
-            'input_composition': self.input_composition,
-            'input_read_counts': self.input_read_counts,
-            'reads_simulated_per_class': self.reads_simulated_per_class,
-            'output_raw': self.output_raw,
-            'output_cov_filtered': self.output_cov_filtered,
-            'clades_fixed': self.predicted_clades_fixed,
-            'predicted_clades_pre': self.predicted_clades_pre,
-            'predicted_clades_post': self.predicted_clades_post,
-            'predicted_clades_fixed': self.predicted_clades_fixed,
-            'precision': self.precision.to_dict(),
-            'recall': self.recall.to_dict(),
-            'cross_hit': self.cross_hit.to_dict(),
+            "data_set": self.data_set,
+            "input_df": self.input_df.to_dict(orient="records"),
+            "sample": self.sample,
+            "input_taxid_count": self.input_taxid_count,
+            "input_composition": self.input_composition,
+            "input_read_counts": self.input_read_counts,
+            "reads_simulated_per_class": self.reads_simulated_per_class,
+            "output_raw": self.output_raw,
+            "output_cov_filtered": self.output_cov_filtered,
+            "clades_fixed": self.predicted_clades_fixed,
+            "predicted_clades_pre": self.predicted_clades_pre,
+            "predicted_clades_post": self.predicted_clades_post,
+            "predicted_clades_fixed": self.predicted_clades_fixed,
+            "precision": self.precision.to_dict(),
+            "recall": self.recall.to_dict(),
+            "cross_hit": self.cross_hit.to_dict(),
         }
         if self.spurious_composition is not None:
-            result['spurious_composition'] = self.spurious_composition
+            result["spurious_composition"] = self.spurious_composition
         if self.cross_hit_composition is not None:
-            result['cross_hit_composition'] = self.cross_hit_composition
+            result["cross_hit_composition"] = self.cross_hit_composition
         return result
-    
+
     @classmethod
-    def from_dict(cls, data: dict) -> 'DatasetResult':
+    def from_dict(cls, data: dict) -> "DatasetResult":
         return cls(
-            data_set=data['data_set'],
-            input_df=pd.DataFrame(data.get('input_df', [])),
-            sample=data.get('sample', ''),
-            input_taxid_count=data.get('input_taxid_count', 0),
-            input_composition=data.get('input_composition'),
-            input_read_counts=data.get('input_read_counts'),
-            reads_simulated_per_class=data.get('reads_simulated_per_class'),
-            output_raw=data.get('output_raw', 0),
-            output_cov_filtered=data.get('output_cov_filtered', 0),
-            clade_precision_fixed=data.get('clade_precision_fixed', 0.0),
-            clades_fixed=data.get('clades_fixed', 0),
-            predicted_clades_pre=data.get('predicted_clades_pre', 0),
-            predicted_clades_post=data.get('predicted_clades_post', 0),
-            precision=PrecisionMetrics.from_dict(data.get('precision', {})),
-            recall=RecallMetrics.from_dict(data.get('recall', {})),
-            cross_hit=CrossHitMetrics.from_dict(data.get('cross_hit', {})),
-            spurious_composition=data.get('spurious_composition'),
-            cross_hit_composition=data.get('cross_hit_composition'),
+            data_set=data["data_set"],
+            input_df=pd.DataFrame(data.get("input_df", [])),
+            sample=data.get("sample", ""),
+            input_taxid_count=data.get("input_taxid_count", 0),
+            input_composition=data.get("input_composition"),
+            input_read_counts=data.get("input_read_counts"),
+            reads_simulated_per_class=data.get("reads_simulated_per_class"),
+            output_raw=data.get("output_raw", 0),
+            output_cov_filtered=data.get("output_cov_filtered", 0),
+            clade_precision_fixed=data.get("clade_precision_fixed", 0.0),
+            clades_fixed=data.get("clades_fixed", 0),
+            predicted_clades_pre=data.get("predicted_clades_pre", 0),
+            predicted_clades_post=data.get("predicted_clades_post", 0),
+            precision=PrecisionMetrics.from_dict(data.get("precision", {})),
+            recall=RecallMetrics.from_dict(data.get("recall", {})),
+            cross_hit=CrossHitMetrics.from_dict(data.get("cross_hit", {})),
+            spurious_composition=data.get("spurious_composition"),
+            cross_hit_composition=data.get("cross_hit_composition"),
         )
 
 
 @dataclass
 class BatchEvaluationResult:
-    
     input_df: pd.DataFrame = field(default_factory=pd.DataFrame)
     test_results: pd.DataFrame = field(default_factory=pd.DataFrame)
     summary_results: pd.DataFrame = field(default_factory=pd.DataFrame)
@@ -180,42 +179,48 @@ class BatchEvaluationResult:
     cross_hit_composition: pd.DataFrame = field(default_factory=pd.DataFrame)
 
     metadata: dict = field(default_factory=dict)
-    
+
     def to_json(self, filepath: str) -> None:
         """Save complete results to JSON file."""
         output = {
-            'generated_at': datetime.now().isoformat(),
-            'metadata': self.metadata,
-            'test_results': self.test_results.to_dict(orient='records'),
-            'summary_results': self.summary_results.to_dict(orient='records'),
-            'spurious_composition': self.spurious_composition.to_dict(orient='records') if not self.spurious_composition.empty else [],
-            'cross_hit_composition': self.cross_hit_composition.to_dict(orient='records') if not self.cross_hit_composition.empty else [],
+            "generated_at": datetime.now().isoformat(),
+            "metadata": self.metadata,
+            "test_results": self.test_results.to_dict(orient="records"),
+            "summary_results": self.summary_results.to_dict(orient="records"),
+            "spurious_composition": self.spurious_composition.to_dict(orient="records")
+            if not self.spurious_composition.empty
+            else [],
+            "cross_hit_composition": self.cross_hit_composition.to_dict(orient="records")
+            if not self.cross_hit_composition.empty
+            else [],
         }
-        with open(filepath, 'w') as f:
+        with open(filepath, "w") as f:
             json.dump(output, f, indent=2, default=str)
-    
+
     @classmethod
-    def from_json(cls, filepath: str) -> 'BatchEvaluationResult':
+    def from_json(cls, filepath: str) -> "BatchEvaluationResult":
         """Load results from JSON file."""
-        with open(filepath, 'r') as f:
+        with open(filepath) as f:
             data = json.load(f)
-        
+
         return cls(
-            test_results=pd.DataFrame(data.get('test_results', [])),
-            summary_results=pd.DataFrame(data.get('summary_results', [])),
-            spurious_composition=pd.DataFrame(data.get('spurious_composition', [])),
-            cross_hit_composition=pd.DataFrame(data.get('cross_hit_composition', [])),
-            metadata=data.get('metadata', {}),
+            test_results=pd.DataFrame(data.get("test_results", [])),
+            summary_results=pd.DataFrame(data.get("summary_results", [])),
+            spurious_composition=pd.DataFrame(data.get("spurious_composition", [])),
+            cross_hit_composition=pd.DataFrame(data.get("cross_hit_composition", [])),
+            metadata=data.get("metadata", {}),
         )
-    
+
     def save_tsv(self, output_dir: str) -> None:
         """Save DataFrames to TSV files (legacy format)."""
         self.input_df.to_csv(f"{output_dir}/test_datasets_input_df.tsv", sep="\t", index=False)
         self.test_results.to_csv(f"{output_dir}/test_datasets_overall_precision.tsv", sep="\t", index=False)
         self.summary_results.to_csv(f"{output_dir}/test_datasets_summary_results.tsv", sep="\t", index=False)
         self.spurious_composition.to_csv(f"{output_dir}/test_datasets_spurious_composition.tsv", sep="\t", index=False)
-        self.cross_hit_composition.to_csv(f"{output_dir}/test_datasets_cross_hit_composition.tsv", sep="\t", index=False)
-    
+        self.cross_hit_composition.to_csv(
+            f"{output_dir}/test_datasets_cross_hit_composition.tsv", sep="\t", index=False
+        )
+
     def write_agent_output(self, filepath: str) -> None:
         """Save comprehensive evaluation results in agent-parseable JSON format.
 
@@ -228,26 +233,38 @@ class BatchEvaluationResult:
             if s.empty:
                 return {}
             return {
-                'mean': float(s.mean()),
-                'median': float(s.median()),
-                'std': float(s.std()),
-                'q1': float(s.quantile(0.25)),
-                'q3': float(s.quantile(0.75)),
-                'min': float(s.min()),
-                'max': float(s.max()),
+                "mean": float(s.mean()),
+                "median": float(s.median()),
+                "std": float(s.std()),
+                "q1": float(s.quantile(0.25)),
+                "q3": float(s.quantile(0.75)),
+                "min": float(s.min()),
+                "max": float(s.max()),
             }
 
         precision_cols = [
-            'precision_best_match', 'purity', 'purity_cov_filtered',
-            'precision_clade_full', 'precision_clade_post_cleanup', 'precision_clade_fixed'
+            "precision_best_match",
+            "purity",
+            "purity_cov_filtered",
+            "precision_clade_full",
+            "precision_clade_post_cleanup",
+            "precision_clade_fixed",
         ]
         recall_cols = [
-            'recall_baseline', 'recall_baseline_cov_filtered', 'recall_clade_pre_cleanup', 'recall_clade_post_cleanup',
-            'recall_after_recall_filter', 'recall_fixed_max_12'
+            "recall_baseline",
+            "recall_baseline_cov_filtered",
+            "recall_clade_pre_cleanup",
+            "recall_clade_post_cleanup",
+            "recall_after_recall_filter",
+            "recall_fixed_max_12",
         ]
         cross_hit_cols = [
-            'cross_hit_precision', 'cross_hit_recall', 'cross_hit_f1', 'cross_hit_specificity',
-            'predicted_cross_hits', 'total_true_cross_hits'
+            "cross_hit_precision",
+            "cross_hit_recall",
+            "cross_hit_f1",
+            "cross_hit_specificity",
+            "predicted_cross_hits",
+            "total_true_cross_hits",
         ]
 
         aggregate = {}
@@ -259,54 +276,61 @@ class BatchEvaluationResult:
                 if col in summary.columns:
                     aggregate[col] = _describe(summary[col])
 
-            if all(c in summary.columns for c in ['recall_baseline', 'precision_best_match']):
-                prob = summary['recall_baseline'] * summary['precision_best_match']
-                aggregate['prob_find_true'] = _describe(prob)
-            if all(c in summary.columns for c in ['recall_baseline', 'purity']):
-                prob = summary['recall_baseline'] * summary['purity']
-                aggregate['prob_find_any'] = _describe(prob)
-            if all(c in summary.columns for c in ['recall_clade_post_cleanup', 'precision_clade_post_cleanup']):
-                prob = summary['recall_clade_post_cleanup'] * summary['precision_clade_post_cleanup']
-                aggregate['prob_find_true_clade_clean'] = _describe(prob)
+            if all(c in summary.columns for c in ["recall_baseline", "precision_best_match"]):
+                prob = summary["recall_baseline"] * summary["precision_best_match"]
+                aggregate["prob_find_true"] = _describe(prob)
+            if all(c in summary.columns for c in ["recall_baseline", "purity"]):
+                prob = summary["recall_baseline"] * summary["purity"]
+                aggregate["prob_find_any"] = _describe(prob)
+            if all(c in summary.columns for c in ["recall_clade_post_cleanup", "precision_clade_post_cleanup"]):
+                prob = summary["recall_clade_post_cleanup"] * summary["precision_clade_post_cleanup"]
+                aggregate["prob_find_true_clade_clean"] = _describe(prob)
 
         output = {
-            'generated_at': datetime.now().isoformat(),
-            'pipeline_version': self.metadata.get('pipeline_version', 'unknown'),
-            'metadata': self.metadata,
-            'aggregate_summary': aggregate if aggregate else None,
-            'test_results': self.test_results.to_dict(orient='records'),
-            'summary_results': summary.to_dict(orient='records') if not summary.empty else [],
-            'spurious_composition': self.spurious_composition.to_dict(orient='records') if not self.spurious_composition.empty else [],
-            'cross_hit_composition': self.cross_hit_composition.to_dict(orient='records') if not self.cross_hit_composition.empty else [],
+            "generated_at": datetime.now().isoformat(),
+            "pipeline_version": self.metadata.get("pipeline_version", "unknown"),
+            "metadata": self.metadata,
+            "aggregate_summary": aggregate if aggregate else None,
+            "test_results": self.test_results.to_dict(orient="records"),
+            "summary_results": summary.to_dict(orient="records") if not summary.empty else [],
+            "spurious_composition": self.spurious_composition.to_dict(orient="records")
+            if not self.spurious_composition.empty
+            else [],
+            "cross_hit_composition": self.cross_hit_composition.to_dict(orient="records")
+            if not self.cross_hit_composition.empty
+            else [],
         }
 
-        with open(filepath, 'w') as f:
+        with open(filepath, "w") as f:
             json.dump(output, f, indent=2, default=str)
 
     def get_summary_stats(self) -> dict:
         """Compute summary statistics for precision metrics."""
         precision_cols = [
-            'precision_best_match', 'purity', 'purity_cov_filtered',
-            'precision_clade_full', 'precision_clade_post_cleanup'
+            "precision_best_match",
+            "purity",
+            "purity_cov_filtered",
+            "precision_clade_full",
+            "precision_clade_post_cleanup",
         ]
-        
+
         available_cols = [c for c in precision_cols if c in self.summary_results.columns]
-        
+
         if not available_cols:
             return {}
-        
+
         stats_df = self.summary_results[available_cols].describe()
         return stats_df.to_dict()
-    
+
     def get_dataset_count(self) -> int:
         """Get number of datasets processed."""
-        return self.summary_results['data_set'].nunique() if 'data_set' in self.summary_results.columns else 0
+        return self.summary_results["data_set"].nunique() if "data_set" in self.summary_results.columns else 0
 
 
 def create_empty_result() -> BatchEvaluationResult:
     """Create an empty BatchEvaluationResult."""
     return BatchEvaluationResult(
-        test_results=pd.DataFrame(columns=['recall_baseline','precision_fixed','precision_clade_post', 'data_set']),
+        test_results=pd.DataFrame(columns=["recall_baseline", "precision_fixed", "precision_clade_post", "data_set"]),
         summary_results=pd.DataFrame(),
         spurious_composition=pd.DataFrame(),
         cross_hit_composition=pd.DataFrame(),

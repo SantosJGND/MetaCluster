@@ -22,9 +22,7 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import List, Optional
 
-import numpy as np
 import pandas as pd
 
 from deployment.model_evaluation.config import EvaluatorConfig
@@ -36,18 +34,19 @@ logger = logging.getLogger(__name__)
 
 # -- Strategies and models to sweep --
 
-DEFAULT_SORT_STRATEGIES = ['reads', 'taxid_roundrobin', 'rarity_boost', 'tax_level_stratified']
+DEFAULT_SORT_STRATEGIES = ["reads", "taxid_roundrobin", "rarity_boost", "tax_level_stratified"]
 
-DEFAULT_RECALL_MODELS = ['xgb', 'morf', 'direct_xgb', 'gp_clf', 'fixed_12_taxids']
+DEFAULT_RECALL_MODELS = ["xgb", "morf", "direct_xgb", "gp_clf", "fixed_12_taxids"]
 
 
 # -- Helpers --
+
 
 def _get_raw_m_stats_matrix(
     data_set_name: str,
     study_output_filepath: Path,
     ncbi_wrapper,
-) -> Optional[pd.DataFrame]:
+) -> pd.DataFrame | None:
     """Load the raw m_stats matrix (pre-sorting) for a single dataset."""
     from metagenomics_utils.overlap_manager import OverlapManager
     from metagenomics_utils.overlap_manager.node_stats import get_m_stats_matrix
@@ -74,22 +73,20 @@ def _get_raw_m_stats_matrix(
 def _load_input_summary(
     data_set_name: str,
     study_output_filepath: Path,
-) -> Optional[pd.DataFrame]:
+) -> pd.DataFrame | None:
     """Load the input summary (taxid column) for a single dataset."""
-    input_path = os.path.join(
-        str(study_output_filepath), data_set_name, "input", f"{data_set_name}.tsv"
-    )
+    input_path = os.path.join(str(study_output_filepath), data_set_name, "input", f"{data_set_name}.tsv")
     if not os.path.exists(input_path):
         return None
     input_df = pd.read_csv(input_path, sep="\t")
-    return input_df[['sample', 'taxid', 'reads', 'mutation_rate']].drop_duplicates()
+    return input_df[["sample", "taxid", "reads", "mutation_rate"]].drop_duplicates()
 
 
 def _collect_matrices(
-    folder_names: List[str],
+    folder_names: list[str],
     config: EvaluatorConfig,
     ncbi_wrapper,
-) -> List[tuple]:
+) -> list[tuple]:
     """Collect raw m_stats matrices for a list of dataset folder names.
 
     Returns list of (dataset_name, matrix) tuples.
@@ -134,10 +131,10 @@ def _compute_n_taxids_found(
     input_summary: pd.DataFrame,
 ) -> int:
     """Count input taxids recovered in first keep_index leaves (intersection)."""
-    input_taxids = set(input_summary['taxid'].unique())
+    input_taxids = set(input_summary["taxid"].unique())
     top = sorted_m_stats.iloc[:keep_index]
-    best = top[(top['is_trash'] == False) & (top['best_match_is_best'] == True)]
-    output_taxids = set(best['best_match_taxid'].dropna().unique())
+    best = top[(top["is_trash"] == False) & (top["best_match_is_best"] == True)]
+    output_taxids = set(best["best_match_taxid"].dropna().unique())
     return len(output_taxids & input_taxids)
 
 
@@ -151,10 +148,10 @@ def _compute_true_cutoff(sorted_m_stats: pd.DataFrame) -> float:
     seen: set = set()
     last_pos = -1
     for pos, (_, row) in enumerate(sorted_m_stats.iterrows()):
-        is_trash = row.get('is_trash', True)
-        is_best = row.get('best_match_is_best', False)
+        is_trash = row.get("is_trash", True)
+        is_best = row.get("best_match_is_best", False)
         if not is_trash and is_best:
-            taxid = row.get('best_match_taxid')
+            taxid = row.get("best_match_taxid")
             if pd.notna(taxid) and taxid not in seen:
                 seen.add(taxid)
                 last_pos = pos
@@ -179,12 +176,14 @@ class FixedCountModeller:
         pass
 
     def predict_cutoff(
-        self, m_stats: pd.DataFrame, target_recall: float = None,
+        self,
+        m_stats: pd.DataFrame,
+        target_recall: float = None,
     ) -> float:
         if self.feature_transformer is not None:
             sorted_stats = self.feature_transformer._apply_sort(m_stats.copy())
         else:
-            sorted_stats = m_stats.sort_values('total_uniq_reads', ascending=False)
+            sorted_stats = m_stats.sort_values("total_uniq_reads", ascending=False)
 
         seen: set = set()
         if sorted_stats.shape[0] <= self.n_taxids:
@@ -196,15 +195,15 @@ class FixedCountModeller:
 def _create_modeller(model_type: str, data_set_divide: int, transformer, target_recall: float):
     """Factory: create a recall modeller with the given transformer injected."""
     from metagenomics_utils.overlap_manager.om_models import (
-        RecallModeller,
         CutoffRecallModeller,
         DirectXGBRecallModeller,
         GPCLFRecallModeller,
         InjectModellerInterface,
+        RecallModeller,
     )
 
-    if model_type.startswith('fixed_'):
-        match = re.match(r'fixed_(\d+)', model_type)
+    if model_type.startswith("fixed_"):
+        match = re.match(r"fixed_(\d+)", model_type)
         if not match:
             raise ValueError(f"Invalid fixed-count model type: {model_type}")
         n_taxids = int(match.group(1))
@@ -212,22 +211,22 @@ def _create_modeller(model_type: str, data_set_divide: int, transformer, target_
             n_taxids=n_taxids,
             feature_transformer=transformer,
         )
-    elif model_type == 'gp_clf':
-        model_interface = InjectModellerInterface(model_type='gp_clf')
+    elif model_type == "gp_clf":
+        model_interface = InjectModellerInterface(model_type="gp_clf")
         modeller = GPCLFRecallModeller(
             data_set_divide=data_set_divide,
             model_interface=model_interface,
             feature_transformer=transformer,
             sort_strategy=transformer.sort_strategy,
         )
-    elif model_type == 'direct':
+    elif model_type == "direct":
         modeller = CutoffRecallModeller(
             data_set_divide=data_set_divide,
             target_recall=target_recall,
             feature_transformer=transformer,
             sort_strategy=transformer.sort_strategy,
         )
-    elif model_type == 'direct_xgb':
+    elif model_type == "direct_xgb":
         modeller = DirectXGBRecallModeller(
             data_set_divide=data_set_divide,
             target_recall=target_recall,
@@ -247,10 +246,11 @@ def _create_modeller(model_type: str, data_set_divide: int, transformer, target_
 
 # -- Main sweep --
 
+
 def run_comparison(
     config: EvaluatorConfig,
-    sort_strategies: List[str],
-    recall_models: List[str],
+    sort_strategies: list[str],
+    recall_models: list[str],
     target_recall: float,
 ) -> pd.DataFrame:
     """
@@ -258,7 +258,6 @@ def run_comparison(
 
     Returns a DataFrame with one row per (strategy, model, test_dataset).
     """
-    from metagenomics_utils.overlap_manager.om_models import InjectModellerInterface
     from sklearn.model_selection import train_test_split
 
     logger.info("Loading data...")
@@ -320,23 +319,29 @@ def run_comparison(
         for model_type in recall_models:
             logger.info("  Model: %s", model_type)
 
-            is_fixed = model_type.startswith('fixed_')
+            is_fixed = model_type.startswith("fixed_")
 
             modeller = _create_modeller(
-                model_type, config.data_set_divide, transformer, target_recall,
+                model_type,
+                config.data_set_divide,
+                transformer,
+                target_recall,
             )
 
             if is_fixed:
                 pass
             else:
                 X_tr, X_te, Y_tr, Y_te = train_test_split(
-                    X, Y, test_size=0.2, random_state=42,
+                    X,
+                    Y,
+                    test_size=0.2,
+                    random_state=42,
                 )
                 modeller.X_test = X_te
                 modeller.y_test = Y_te
 
                 try:
-                    if model_type == 'gp_clf':
+                    if model_type == "gp_clf":
                         modeller.fit(
                             raw_train_matrices,
                             taxids_to_use,
@@ -344,9 +349,9 @@ def run_comparison(
                             random_state=42,
                             optimize=True,
                         )
-                    elif model_type == 'direct_xgb':
+                    elif model_type == "direct_xgb":
                         modeller.fit(raw_train_matrices, taxids_to_use, test_size=0.2)
-                    elif model_type == 'direct':
+                    elif model_type == "direct":
                         modeller.fit(raw_train_matrices, taxids_to_use, test_size=0.2)
                     else:
                         modeller.model = modeller.model_interface.train_model(X_tr, Y_tr)
@@ -355,9 +360,13 @@ def run_comparison(
 
                 except Exception as e:
                     logger.warning(
-                        "Training failed for %s / %s: %s", strategy, model_type, e,
+                        "Training failed for %s / %s: %s",
+                        strategy,
+                        model_type,
+                        e,
                     )
                     import traceback
+
                     traceback.print_exc()
                     continue
 
@@ -369,7 +378,8 @@ def run_comparison(
                         continue
 
                     pred_percentile = modeller.predict_cutoff(
-                        test_m, target_recall=target_recall,
+                        test_m,
+                        target_recall=target_recall,
                     )
                     keep_idx = max(1, round(pred_percentile * len(test_m)))
 
@@ -377,35 +387,37 @@ def run_comparison(
 
                     actual_recall = _compute_actual_recall(sorted_test, keep_idx, input_summary)
                     max_possible_recall = _compute_max_possible_recall(sorted_test, input_summary)
-                    standardized_recall = (
-                        actual_recall / max_possible_recall
-                        if max_possible_recall > 0 else 0.0
-                    )
+                    standardized_recall = actual_recall / max_possible_recall if max_possible_recall > 0 else 0.0
                     standardized_recall = min(standardized_recall, 1.0)
                     true_cutoff = _compute_true_cutoff(sorted_test)
                     n_taxids_found = _compute_n_taxids_found(sorted_test, keep_idx, input_summary)
-                    n_input_taxids = int(input_summary['taxid'].nunique())
+                    n_input_taxids = int(input_summary["taxid"].nunique())
 
-                    records.append({
-                        'sort_strategy': strategy,
-                        'recall_model': model_type,
-                        'data_set': ds_name,
-                        'total_leaves': len(sorted_test),
-                        'n_input_taxids': n_input_taxids,
-                        'target_percentile': pred_percentile,
-                        'keep_index': keep_idx,
-                        'actual_recall': actual_recall,
-                        'max_possible_recall': max_possible_recall,
-                        'standardized_recall': standardized_recall,
-                        'recall_ceiling_gap': max_possible_recall - actual_recall,
-                        'true_cutoff': true_cutoff,
-                        'n_taxids_found': n_taxids_found,
-                        'recall_gap': actual_recall - target_recall,
-                    })
+                    records.append(
+                        {
+                            "sort_strategy": strategy,
+                            "recall_model": model_type,
+                            "data_set": ds_name,
+                            "total_leaves": len(sorted_test),
+                            "n_input_taxids": n_input_taxids,
+                            "target_percentile": pred_percentile,
+                            "keep_index": keep_idx,
+                            "actual_recall": actual_recall,
+                            "max_possible_recall": max_possible_recall,
+                            "standardized_recall": standardized_recall,
+                            "recall_ceiling_gap": max_possible_recall - actual_recall,
+                            "true_cutoff": true_cutoff,
+                            "n_taxids_found": n_taxids_found,
+                            "recall_gap": actual_recall - target_recall,
+                        }
+                    )
                 except Exception as e:
                     logger.warning(
                         "Prediction failed for %s / %s on %s: %s",
-                        strategy, model_type, ds_name, e,
+                        strategy,
+                        model_type,
+                        ds_name,
+                        e,
                     )
                     continue
 
@@ -414,87 +426,82 @@ def run_comparison(
 
 # -- Report helpers --
 
+
 def generate_summary(results_df: pd.DataFrame) -> pd.DataFrame:
     """Aggregate results by (sort_strategy, recall_model)."""
     if results_df.empty:
         return pd.DataFrame()
 
-    group_cols = ['sort_strategy', 'recall_model']
-    has_standardized = 'standardized_recall' in results_df.columns
-    has_max_recall = 'max_possible_recall' in results_df.columns
+    group_cols = ["sort_strategy", "recall_model"]
+    has_standardized = "standardized_recall" in results_df.columns
+    has_max_recall = "max_possible_recall" in results_df.columns
 
     agg_dict = {
-        'n_datasets': ('target_percentile', 'count'),
-        'mean_percentile': ('target_percentile', 'mean'),
-        'std_percentile': ('target_percentile', 'std'),
-        'median_percentile': ('target_percentile', 'median'),
-        'mean_keep_index': ('keep_index', 'mean'),
-        'std_keep_index': ('keep_index', 'std'),
-        'median_keep_index': ('keep_index', 'median'),
-        'mean_actual_recall': ('actual_recall', 'mean'),
-        'std_actual_recall': ('actual_recall', 'std'),
-        'mean_recall_gap': ('recall_gap', 'mean'),
-        'mean_taxids_found': ('n_taxids_found', 'mean'),
-        'mean_input_taxids': ('n_input_taxids', 'mean'),
+        "n_datasets": ("target_percentile", "count"),
+        "mean_percentile": ("target_percentile", "mean"),
+        "std_percentile": ("target_percentile", "std"),
+        "median_percentile": ("target_percentile", "median"),
+        "mean_keep_index": ("keep_index", "mean"),
+        "std_keep_index": ("keep_index", "std"),
+        "median_keep_index": ("keep_index", "median"),
+        "mean_actual_recall": ("actual_recall", "mean"),
+        "std_actual_recall": ("actual_recall", "std"),
+        "mean_recall_gap": ("recall_gap", "mean"),
+        "mean_taxids_found": ("n_taxids_found", "mean"),
+        "mean_input_taxids": ("n_input_taxids", "mean"),
     }
     if has_standardized:
-        agg_dict['mean_standardized_recall'] = ('standardized_recall', 'mean')
-        agg_dict['std_standardized_recall'] = ('standardized_recall', 'std')
+        agg_dict["mean_standardized_recall"] = ("standardized_recall", "mean")
+        agg_dict["std_standardized_recall"] = ("standardized_recall", "std")
     if has_max_recall:
-        agg_dict['mean_max_possible_recall'] = ('max_possible_recall', 'mean')
+        agg_dict["mean_max_possible_recall"] = ("max_possible_recall", "mean")
 
     summary = results_df.groupby(group_cols).agg(**agg_dict).reset_index()
 
-    summary = summary.sort_values(['sort_strategy', 'mean_percentile'])
+    summary = summary.sort_values(["sort_strategy", "mean_percentile"])
     return summary
 
 
-def _density_grid(results_df, x_col, y_col, x_label, y_label, suptitle, filename, output_dir,
-                  models=None, strategies=None):
+def _density_grid(
+    results_df, x_col, y_col, x_label, y_label, suptitle, filename, output_dir, models=None, strategies=None
+):
     """2D density + scatter grid, rows=recall_model, cols=sort_strategy."""
     import matplotlib.pyplot as plt
     import seaborn as sns
 
     if models is None:
-        models = sorted(results_df['recall_model'].unique())
+        models = sorted(results_df["recall_model"].unique())
     if strategies is None:
-        strategies = sorted(results_df['sort_strategy'].unique())
+        strategies = sorted(results_df["sort_strategy"].unique())
 
     n_models, n_strats = len(models), len(strategies)
-    fig, axes = plt.subplots(n_models, n_strats,
-                             figsize=(4.5 * n_strats, 4 * n_models),
-                             squeeze=False)
+    fig, axes = plt.subplots(n_models, n_strats, figsize=(4.5 * n_strats, 4 * n_models), squeeze=False)
 
     for mi, model in enumerate(models):
         for si, strat in enumerate(strategies):
             ax = axes[mi][si]
-            sub = results_df[
-                (results_df['recall_model'] == model) &
-                (results_df['sort_strategy'] == strat)
-            ]
+            sub = results_df[(results_df["recall_model"] == model) & (results_df["sort_strategy"] == strat)]
 
             if len(sub) >= 3:
-                sns.kdeplot(data=sub, x=x_col, y=y_col, fill=True,
-                            thresh=0.05, alpha=0.35, ax=ax)
-            sns.scatterplot(data=sub, x=x_col, y=y_col, color='black',
-                            alpha=0.15, s=12, linewidth=0, ax=ax)
+                sns.kdeplot(data=sub, x=x_col, y=y_col, fill=True, thresh=0.05, alpha=0.35, ax=ax)
+            sns.scatterplot(data=sub, x=x_col, y=y_col, color="black", alpha=0.15, s=12, linewidth=0, ax=ax)
 
-            ax.plot([0, 1], [0, 1], '--', color='grey', alpha=0.4, linewidth=0.8)
+            ax.plot([0, 1], [0, 1], "--", color="grey", alpha=0.4, linewidth=0.8)
             ax.set_xlim(0, 1)
             ax.set_ylim(0, 1)
 
             if mi == 0:
-                ax.set_title(strat, fontsize=10, fontweight='bold')
+                ax.set_title(strat, fontsize=10, fontweight="bold")
             if si == 0:
-                ax.set_ylabel(f'{model}\n{y_label}', fontsize=9)
+                ax.set_ylabel(f"{model}\n{y_label}", fontsize=9)
             if mi == n_models - 1:
                 ax.set_xlabel(x_label, fontsize=9)
             ax.tick_params(labelsize=7)
             ax.grid(True, alpha=0.15)
 
-    fig.suptitle(suptitle, fontsize=14, fontweight='bold')
+    fig.suptitle(suptitle, fontsize=14, fontweight="bold")
     plt.tight_layout()
-    plt.savefig(str(output_dir / filename), bbox_inches='tight')
+    plt.savefig(str(output_dir / filename), bbox_inches="tight")
     plt.close(fig)
 
 
@@ -502,103 +509,115 @@ def save_plots(results_df: pd.DataFrame, summary_df: pd.DataFrame, output_dir: P
     """Generate comparison boxplots and heatmaps."""
     try:
         import matplotlib
-        matplotlib.use('Agg')
+
+        matplotlib.use("Agg")
         import matplotlib.pyplot as plt
         import seaborn as sns
     except ImportError:
         logger.warning("matplotlib/seaborn not available -- skipping plots")
         return
 
-    sns.set_style('whitegrid')
-    plt.rcParams['figure.dpi'] = 120
+    sns.set_style("whitegrid")
+    plt.rcParams["figure.dpi"] = 120
 
     if not results_df.empty:
-        models = results_df['recall_model'].unique()
+        models = results_df["recall_model"].unique()
         n_models = len(models)
-        fig, axes = plt.subplots(1, n_models, figsize=(5 * n_models, 5),
-                                 sharey=True, squeeze=False)
+        fig, axes = plt.subplots(1, n_models, figsize=(5 * n_models, 5), sharey=True, squeeze=False)
         for ax, model in zip(axes[0], models):
-            subset = results_df[results_df['recall_model'] == model]
-            sns.boxplot(data=subset, x='sort_strategy', y='target_percentile',
-                        ax=ax, palette='Set2', order=sorted(subset['sort_strategy'].unique()))
-            ax.set_title(f'Model: {model}')
-            ax.set_xlabel('Sort strategy')
-            ax.tick_params(axis='x', rotation=30)
-        fig.suptitle('Target percentile by strategy and model', fontsize=14)
+            subset = results_df[results_df["recall_model"] == model]
+            sns.boxplot(
+                data=subset,
+                x="sort_strategy",
+                y="target_percentile",
+                ax=ax,
+                palette="Set2",
+                order=sorted(subset["sort_strategy"].unique()),
+            )
+            ax.set_title(f"Model: {model}")
+            ax.set_xlabel("Sort strategy")
+            ax.tick_params(axis="x", rotation=30)
+        fig.suptitle("Target percentile by strategy and model", fontsize=14)
         plt.tight_layout()
-        plt.savefig(str(output_dir / 'comparison_target_percentile.png'),
-                    bbox_inches='tight')
+        plt.savefig(str(output_dir / "comparison_target_percentile.png"), bbox_inches="tight")
         plt.close(fig)
 
         pivot = summary_df.pivot_table(
-            index='sort_strategy', columns='recall_model',
-            values='mean_percentile',
+            index="sort_strategy",
+            columns="recall_model",
+            values="mean_percentile",
         )
         if not pivot.empty:
             fig, ax = plt.subplots(figsize=(8, 5))
-            sns.heatmap(pivot, annot=True, fmt='.3f', cmap='YlOrRd',
-                        ax=ax, cbar_kws={'label': 'Mean target percentile'})
-            ax.set_title('Mean target percentile')
+            sns.heatmap(
+                pivot, annot=True, fmt=".3f", cmap="YlOrRd", ax=ax, cbar_kws={"label": "Mean target percentile"}
+            )
+            ax.set_title("Mean target percentile")
             plt.tight_layout()
-            plt.savefig(str(output_dir / 'comparison_heatmap.png'),
-                        bbox_inches='tight')
+            plt.savefig(str(output_dir / "comparison_heatmap.png"), bbox_inches="tight")
             plt.close(fig)
 
-        fig, axes = plt.subplots(1, n_models, figsize=(5 * n_models, 5),
-                                 sharey=True, squeeze=False)
+        fig, axes = plt.subplots(1, n_models, figsize=(5 * n_models, 5), sharey=True, squeeze=False)
         for ax, model in zip(axes[0], models):
-            subset = results_df[results_df['recall_model'] == model]
-            sns.boxplot(data=subset, x='sort_strategy', y='actual_recall',
-                        ax=ax, palette='Set2', order=sorted(subset['sort_strategy'].unique()))
-            ax.axhline(subset['actual_recall'].median(), color='red', ls='--', lw=1, alpha=0.5)
-            ax.set_title(f'Model: {model}')
-            ax.set_xlabel('Sort strategy')
-            ax.tick_params(axis='x', rotation=30)
-        fig.suptitle('Actual recall at predicted cutoff', fontsize=14)
+            subset = results_df[results_df["recall_model"] == model]
+            sns.boxplot(
+                data=subset,
+                x="sort_strategy",
+                y="actual_recall",
+                ax=ax,
+                palette="Set2",
+                order=sorted(subset["sort_strategy"].unique()),
+            )
+            ax.axhline(subset["actual_recall"].median(), color="red", ls="--", lw=1, alpha=0.5)
+            ax.set_title(f"Model: {model}")
+            ax.set_xlabel("Sort strategy")
+            ax.tick_params(axis="x", rotation=30)
+        fig.suptitle("Actual recall at predicted cutoff", fontsize=14)
         plt.tight_layout()
-        plt.savefig(str(output_dir / 'comparison_actual_recall.png'),
-                    bbox_inches='tight')
+        plt.savefig(str(output_dir / "comparison_actual_recall.png"), bbox_inches="tight")
         plt.close(fig)
 
-        if 'standardized_recall' in results_df.columns:
-            fig, axes = plt.subplots(1, n_models, figsize=(5 * n_models, 5),
-                                     sharey=True, squeeze=False)
+        if "standardized_recall" in results_df.columns:
+            fig, axes = plt.subplots(1, n_models, figsize=(5 * n_models, 5), sharey=True, squeeze=False)
             for ax, model in zip(axes[0], models):
-                subset = results_df[results_df['recall_model'] == model]
-                sns.boxplot(data=subset, x='sort_strategy', y='standardized_recall',
-                            ax=ax, palette='Set2',
-                            order=sorted(subset['sort_strategy'].unique()))
-                ax.axhline(subset['standardized_recall'].median(),
-                           color='red', ls='--', lw=1, alpha=0.5)
-                ax.set_title(f'Model: {model}')
-                ax.set_xlabel('Sort strategy')
-                ax.tick_params(axis='x', rotation=30)
-            fig.suptitle('Standardized recall (actual / max possible)', fontsize=14)
+                subset = results_df[results_df["recall_model"] == model]
+                sns.boxplot(
+                    data=subset,
+                    x="sort_strategy",
+                    y="standardized_recall",
+                    ax=ax,
+                    palette="Set2",
+                    order=sorted(subset["sort_strategy"].unique()),
+                )
+                ax.axhline(subset["standardized_recall"].median(), color="red", ls="--", lw=1, alpha=0.5)
+                ax.set_title(f"Model: {model}")
+                ax.set_xlabel("Sort strategy")
+                ax.tick_params(axis="x", rotation=30)
+            fig.suptitle("Standardized recall (actual / max possible)", fontsize=14)
             plt.tight_layout()
-            plt.savefig(str(output_dir / 'comparison_standardized_recall.png'),
-                        bbox_inches='tight')
+            plt.savefig(str(output_dir / "comparison_standardized_recall.png"), bbox_inches="tight")
             plt.close(fig)
 
             _density_grid(
                 results_df=results_df,
-                x_col='target_percentile',
-                y_col='standardized_recall',
-                x_label='Target percentile',
-                y_label='Standardized recall',
-                suptitle='Target percentile vs standardized recall\n(model x strategy density)',
-                filename='comparison_percentile_vs_recall.png',
+                x_col="target_percentile",
+                y_col="standardized_recall",
+                x_label="Target percentile",
+                y_label="Standardized recall",
+                suptitle="Target percentile vs standardized recall\n(model x strategy density)",
+                filename="comparison_percentile_vs_recall.png",
                 output_dir=output_dir,
             )
 
-        if 'true_cutoff' in results_df.columns:
+        if "true_cutoff" in results_df.columns:
             _density_grid(
                 results_df=results_df,
-                x_col='true_cutoff',
-                y_col='target_percentile',
-                x_label='True cutoff (last valid taxid)',
-                y_label='Predicted cutoff',
-                suptitle='True vs predicted cutoff\n(model x strategy density)',
-                filename='comparison_true_vs_predicted_cutoff.png',
+                x_col="true_cutoff",
+                y_col="target_percentile",
+                x_label="True cutoff (last valid taxid)",
+                y_label="Predicted cutoff",
+                suptitle="True vs predicted cutoff\n(model x strategy density)",
+                filename="comparison_true_vs_predicted_cutoff.png",
                 output_dir=output_dir,
             )
 
@@ -607,6 +626,7 @@ def save_plots(results_df: pd.DataFrame, summary_df: pd.DataFrame, output_dir: P
 
 # -- CLI --
 
+
 def get_args():
     parser = argparse.ArgumentParser(
         description="Compare recall sort strategies across recall model types.",
@@ -614,25 +634,23 @@ def get_args():
     parser.add_argument("--study_output_filepath", type=str, required=True)
     parser.add_argument("--taxid_plan_filepath", type=str, required=True)
     parser.add_argument("--analysis_output_filepath", type=str, required=True)
-    parser.add_argument("--output_dir", type=str, default="sort_comparison",
-                        help="Subdirectory name within analysis_output_filepath for results "
-                             "(default: sort_comparison)")
-    parser.add_argument("--sort_strategies", type=str, nargs='+',
-                        default=DEFAULT_SORT_STRATEGIES,
-                        help="Sort strategies to compare")
-    parser.add_argument("--recall_models", type=str, nargs='+',
-                        default=DEFAULT_RECALL_MODELS,
-                        help="Recall model types to compare")
-    parser.add_argument("--target_recall", type=float, default=1.0,
-                        help="Target recall threshold")
-    parser.add_argument("--data_set_divide", type=int, default=16,
-                        help="Number of recall divisions")
-    parser.add_argument("--tax_level", type=str, default='genus',
-                        help="Taxonomic level")
-    parser.add_argument("--max_training", type=int, default=None,
-                        help="Max training datasets to use")
-    parser.add_argument("--verbose", action="store_true",
-                        help="Verbose logging")
+    parser.add_argument(
+        "--output_dir",
+        type=str,
+        default="sort_comparison",
+        help="Subdirectory name within analysis_output_filepath for results (default: sort_comparison)",
+    )
+    parser.add_argument(
+        "--sort_strategies", type=str, nargs="+", default=DEFAULT_SORT_STRATEGIES, help="Sort strategies to compare"
+    )
+    parser.add_argument(
+        "--recall_models", type=str, nargs="+", default=DEFAULT_RECALL_MODELS, help="Recall model types to compare"
+    )
+    parser.add_argument("--target_recall", type=float, default=1.0, help="Target recall threshold")
+    parser.add_argument("--data_set_divide", type=int, default=16, help="Number of recall divisions")
+    parser.add_argument("--tax_level", type=str, default="genus", help="Taxonomic level")
+    parser.add_argument("--max_training", type=int, default=None, help="Max training datasets to use")
+    parser.add_argument("--verbose", action="store_true", help="Verbose logging")
     return parser.parse_args()
 
 
@@ -641,7 +659,7 @@ def main():
 
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         stream=sys.stdout,
     )
 
@@ -658,7 +676,7 @@ def main():
         tax_level=args.tax_level,
         max_training=args.max_training,
         holdout_proportion=0.3,
-        recall_sort_strategy='reads',
+        recall_sort_strategy="reads",
     )
 
     logger.info("=" * 60)
@@ -694,22 +712,28 @@ def main():
     print("SUMMARY: Mean target_percentile by (sort_strategy, recall_model)")
     print("=" * 80)
     pivot = summary_df.pivot_table(
-        index='sort_strategy', columns='recall_model',
-        values='mean_percentile', aggfunc='first',
+        index="sort_strategy",
+        columns="recall_model",
+        values="mean_percentile",
+        aggfunc="first",
     )
     print(pivot.to_string(float_format="%.4f"))
     print("\nMean actual recall:")
     pivot_recall = summary_df.pivot_table(
-        index='sort_strategy', columns='recall_model',
-        values='mean_actual_recall', aggfunc='first',
+        index="sort_strategy",
+        columns="recall_model",
+        values="mean_actual_recall",
+        aggfunc="first",
     )
     print(pivot_recall.to_string(float_format="%.4f"))
 
-    if 'mean_standardized_recall' in summary_df.columns:
+    if "mean_standardized_recall" in summary_df.columns:
         print("\nMean standardized recall (actual / max_possible):")
         pivot_std = summary_df.pivot_table(
-            index='sort_strategy', columns='recall_model',
-            values='mean_standardized_recall', aggfunc='first',
+            index="sort_strategy",
+            columns="recall_model",
+            values="mean_standardized_recall",
+            aggfunc="first",
         )
         print(pivot_std.to_string(float_format="%.4f"))
 

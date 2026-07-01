@@ -1,13 +1,14 @@
 """
 Tests for deployment/model_evaluation/logging_config.py
 """
-import pytest
-import logging
+
 import json
+import logging
 import tempfile
-import os
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock
+
+import pytest
 
 from deployment.model_evaluation import logging_config as lc
 
@@ -21,16 +22,15 @@ class TestJSONFormatter:
 
         formatter = JSONFormatter()
         record = logging.LogRecord(
-            name='test', level=logging.INFO, pathname='test.py',
-            lineno=1, msg='test message', args=(), exc_info=None
+            name="test", level=logging.INFO, pathname="test.py", lineno=1, msg="test message", args=(), exc_info=None
         )
 
         result = formatter.format(record)
         parsed = json.loads(result)
 
-        assert 'timestamp' in parsed
-        assert parsed['level'] == 'INFO'
-        assert parsed['message'] == 'test message'
+        assert "timestamp" in parsed
+        assert parsed["level"] == "INFO"
+        assert parsed["message"] == "test message"
 
     def test_format_includes_level(self):
         """Output includes log level."""
@@ -38,14 +38,19 @@ class TestJSONFormatter:
 
         formatter = JSONFormatter()
         record = logging.LogRecord(
-            name='test', level=logging.WARNING, pathname='test.py',
-            lineno=1, msg='warning message', args=(), exc_info=None
+            name="test",
+            level=logging.WARNING,
+            pathname="test.py",
+            lineno=1,
+            msg="warning message",
+            args=(),
+            exc_info=None,
         )
 
         result = formatter.format(record)
         parsed = json.loads(result)
 
-        assert parsed['level'] == 'WARNING'
+        assert parsed["level"] == "WARNING"
 
     def test_format_includes_message(self):
         """Output includes message."""
@@ -53,14 +58,13 @@ class TestJSONFormatter:
 
         formatter = JSONFormatter()
         record = logging.LogRecord(
-            name='test', level=logging.INFO, pathname='test.py',
-            lineno=1, msg='hello world', args=(), exc_info=None
+            name="test", level=logging.INFO, pathname="test.py", lineno=1, msg="hello world", args=(), exc_info=None
         )
 
         result = formatter.format(record)
         parsed = json.loads(result)
 
-        assert parsed['message'] == 'hello world'
+        assert parsed["message"] == "hello world"
 
     def test_format_with_extra_data(self):
         """Include extra data when present."""
@@ -69,16 +73,15 @@ class TestJSONFormatter:
         formatter = JSONFormatter(include_extra=True)
 
         record = logging.LogRecord(
-            name='test', level=logging.INFO, pathname='test.py',
-            lineno=1, msg='test', args=(), exc_info=None
+            name="test", level=logging.INFO, pathname="test.py", lineno=1, msg="test", args=(), exc_info=None
         )
-        record.extra_data = {'user': 'test_user', 'action': 'login'}
+        record.extra_data = {"user": "test_user", "action": "login"}
 
         result = formatter.format(record)
         parsed = json.loads(result)
 
-        assert 'extra' in parsed
-        assert parsed['extra']['user'] == 'test_user'
+        assert "extra" in parsed
+        assert parsed["extra"]["user"] == "test_user"
 
     def test_format_with_exception(self):
         """Include exception info when present."""
@@ -90,29 +93,34 @@ class TestJSONFormatter:
             raise ValueError("test error")
         except ValueError:
             import sys
+
             record = logging.LogRecord(
-                name='test', level=logging.ERROR, pathname='test.py',
-                lineno=1, msg='error occurred', args=(), exc_info=sys.exc_info()
+                name="test",
+                level=logging.ERROR,
+                pathname="test.py",
+                lineno=1,
+                msg="error occurred",
+                args=(),
+                exc_info=sys.exc_info(),
             )
 
         result = formatter.format(record)
         parsed = json.loads(result)
 
-        assert 'exception' in parsed
+        assert "exception" in parsed
 
     def test_format_includes_module_and_function(self):
         """Include module and function name."""
         formatter = lc.JSONFormatter()
         record = logging.LogRecord(
-            name='test', level=logging.INFO, pathname='test.py',
-            lineno=1, msg='test message', args=(), exc_info=None
+            name="test", level=logging.INFO, pathname="test.py", lineno=1, msg="test message", args=(), exc_info=None
         )
 
         result = formatter.format(record)
         parsed = json.loads(result)
 
-        assert 'module' in parsed
-        assert 'function' in parsed
+        assert "module" in parsed
+        assert "function" in parsed
 
 
 class TestStructuredLogger:
@@ -123,9 +131,9 @@ class TestStructuredLogger:
         from deployment.model_evaluation.logging_config import StructuredLogger
 
         mock_logger = Mock()
-        logger = StructuredLogger('test', mock_logger)
+        logger = StructuredLogger("test", mock_logger)
 
-        logger.debug('debug message')
+        logger.debug("debug message")
 
         mock_logger.log.assert_called_once()
         call_args = mock_logger.log.call_args
@@ -136,9 +144,9 @@ class TestStructuredLogger:
         from deployment.model_evaluation.logging_config import StructuredLogger
 
         mock_logger = Mock()
-        logger = StructuredLogger('test', mock_logger)
+        logger = StructuredLogger("test", mock_logger)
 
-        logger.info('info message')
+        logger.info("info message")
 
         mock_logger.log.assert_called_once()
         call_args = mock_logger.log.call_args
@@ -149,9 +157,9 @@ class TestStructuredLogger:
         from deployment.model_evaluation.logging_config import StructuredLogger
 
         mock_logger = Mock()
-        logger = StructuredLogger('test', mock_logger)
+        logger = StructuredLogger("test", mock_logger)
 
-        logger.warning('warning message')
+        logger.warning("warning message")
 
         mock_logger.log.assert_called_once()
         call_args = mock_logger.log.call_args
@@ -162,22 +170,22 @@ class TestStructuredLogger:
         from deployment.model_evaluation.logging_config import StructuredLogger
 
         mock_logger = Mock()
-        logger = StructuredLogger('test', mock_logger)
+        logger = StructuredLogger("test", mock_logger)
 
-        logger.error('error message', exc_info=True)
+        logger.error("error message", exc_info=True)
 
         mock_logger.log.assert_called_once()
         call_args = mock_logger.log.call_args
-        assert call_args[1].get('exc_info') is True
+        assert call_args[1].get("exc_info") is True
 
     def test_critical_logs_message(self):
         """Critical level logging."""
         from deployment.model_evaluation.logging_config import StructuredLogger
 
         mock_logger = Mock()
-        logger = StructuredLogger('test', mock_logger)
+        logger = StructuredLogger("test", mock_logger)
 
-        logger.critical('critical message')
+        logger.critical("critical message")
 
         mock_logger.log.assert_called_once()
         call_args = mock_logger.log.call_args
@@ -186,13 +194,13 @@ class TestStructuredLogger:
     def test_with_extra_data(self):
         """Pass extra data with logging."""
         mock_logger = Mock()
-        logger = lc.StructuredLogger('test', mock_logger)
+        logger = lc.StructuredLogger("test", mock_logger)
 
-        logger.info('message', extra={'key': 'value'})
+        logger.info("message", extra={"key": "value"})
 
         mock_logger.log.assert_called_once()
         call_args = mock_logger.log.call_args
-        assert 'extra' in call_args[1]
+        assert "extra" in call_args[1]
 
 
 class TestSetupLogging:
@@ -219,11 +227,7 @@ class TestSetupLogging:
         with tempfile.TemporaryDirectory() as tmpdir:
             log_file = Path(tmpdir) / "test.json"
 
-            logger = lc.setup_logging(
-                log_file=log_file,
-                console_level=logging.WARNING,
-                log_format='json'
-            )
+            logger = lc.setup_logging(log_file=log_file, console_level=logging.WARNING, log_format="json")
 
             assert log_file.exists()
 
@@ -232,11 +236,7 @@ class TestSetupLogging:
         with tempfile.TemporaryDirectory() as tmpdir:
             log_file = Path(tmpdir) / "test.txt"
 
-            logger = lc.setup_logging(
-                log_file=log_file,
-                console_level=logging.WARNING,
-                log_format='text'
-            )
+            logger = lc.setup_logging(log_file=log_file, console_level=logging.WARNING, log_format="text")
 
             assert log_file.exists()
 
@@ -277,7 +277,7 @@ class TestLogContext:
         """Temporarily change log level."""
         from deployment.model_evaluation.logging_config import LogContext
 
-        test_logger = logging.getLogger('test_context')
+        test_logger = logging.getLogger("test_context")
         original_level = test_logger.level
 
         with LogContext(test_logger, logging.DEBUG):
@@ -289,7 +289,7 @@ class TestLogContext:
         """Restore original level on exit."""
         from deployment.model_evaluation.logging_config import LogContext
 
-        test_logger = logging.getLogger('test_restore')
+        test_logger = logging.getLogger("test_restore")
         test_logger.setLevel(logging.WARNING)
 
         with LogContext(test_logger, logging.DEBUG):
@@ -315,7 +315,7 @@ class TestLogFunctionCallDecorator:
 
         mock_logger.debug.assert_called()
         call_args = mock_logger.debug.call_args
-        assert 'my_function' in str(call_args)
+        assert "my_function" in str(call_args)
 
     def test_decorator_logs_result(self):
         """Log successful completion."""
@@ -330,7 +330,7 @@ class TestLogFunctionCallDecorator:
         my_function(1, 2)
 
         calls = mock_logger.debug.call_args_list
-        assert any('success' in str(call) for call in calls)
+        assert any("success" in str(call) for call in calls)
 
     def test_decorator_logs_error(self):
         """Log error on exception."""
@@ -347,7 +347,7 @@ class TestLogFunctionCallDecorator:
 
         mock_logger.error.assert_called()
         call_args = mock_logger.error.call_args
-        assert 'error' in str(call_args).lower()
+        assert "error" in str(call_args).lower()
 
 
 class TestGetLogger:
@@ -355,7 +355,7 @@ class TestGetLogger:
 
     def test_get_logger_returns_structured_logger(self):
         """Return StructuredLogger instance."""
-        logger = lc.get_logger('test_module')
+        logger = lc.get_logger("test_module")
 
         assert isinstance(logger, lc.StructuredLogger)
-        assert logger.name == 'test_module'
+        assert logger.name == "test_module"

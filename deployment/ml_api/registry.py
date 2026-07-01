@@ -1,27 +1,23 @@
-import sys
-import time
 import socket
+import sys
 import threading
+import time
 from pathlib import Path
+
 import joblib
 
 _THIS_DIR = Path(__file__).parent
 sys.path.append(str(_THIS_DIR))
 sys.path.append(str(_THIS_DIR.parent.parent))
 
-from config import get_logger, MLFLOW_TRACKING_URI, registry_name, MLFLOW_EXPERIMENT, ModelFile, RECALL_MODEL_VARIANTS, PROJECT_MODELS
-from metagenomics_utils.overlap_manager.om_models import (
-    ClusteringPipeline,
-    GPCLFThreshold,
-    RecallModeller,
-    CutoffRecallModeller,
-    DirectXGBRecallModeller,
-    GPCLFRecallModeller,
-    XGBCompositionModeller,
-    OptunaXGBCompositionModeller,
-    RFCompositionModeller,
-    GBCompositionModeller,
-    LRCompositionModeller,
+from config import (
+    MLFLOW_EXPERIMENT,
+    MLFLOW_TRACKING_URI,
+    PROJECT_MODELS,
+    RECALL_MODEL_VARIANTS,
+    ModelFile,
+    get_logger,
+    registry_name,
 )
 
 logger = get_logger(__name__)
@@ -69,6 +65,7 @@ def load_production_model(model_type):
     if _mlflow_reachable():
         try:
             import mlflow
+
             mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
             mlflow.set_experiment(MLFLOW_EXPERIMENT)
             name = registry_name(model_type)
@@ -95,14 +92,13 @@ def get_model_version(model_type):
         try:
             import mlflow
             from mlflow.tracking import MlflowClient
+
             mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
             mlflow.set_experiment(MLFLOW_EXPERIMENT)
             name = registry_name(model_type)
             client = MlflowClient()
             for stage in ["Production", "Staging"]:
-                versions = client.search_model_versions(
-                    f"name='{name}'"
-                )
+                versions = client.search_model_versions(f"name='{name}'")
                 if versions:
                     v = versions[0]
                     return {"version": v.version, "stage": v.current_stage, "run_id": v.run_id}
@@ -132,9 +128,7 @@ def get_cached_model(model_type: str) -> tuple:
     with _cache_lock:
         entry = _model_cache.get(model_type)
     if entry is None:
-        raise RuntimeError(
-            f"Model '{model_type}' not in cache. Use POST /reload/{model_type} to load it."
-        )
+        raise RuntimeError(f"Model '{model_type}' not in cache. Use POST /reload/{model_type} to load it.")
     return entry["model"], {
         "version": entry["version"],
         "stage": entry["stage"],

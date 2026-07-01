@@ -1,5 +1,4 @@
 from pydantic import BaseModel, Field
-from typing import Dict, List, Optional
 
 
 class RecallCutoffFromTableRow(BaseModel):
@@ -10,10 +9,10 @@ class RecallCutoffFromTableRow(BaseModel):
 
 class RecallCutoffFromTableRequest(BaseModel):
     model: str = "gp_clf"
-    rows: List[RecallCutoffFromTableRow]
+    rows: list[RecallCutoffFromTableRow]
     tax_level: str = "order"
-    target_recall: Optional[float] = None
-    confidence: Optional[float] = None
+    target_recall: float | None = None
+    confidence: float | None = None
 
 
 class RecallCutoffResult(BaseModel):
@@ -21,25 +20,32 @@ class RecallCutoffResult(BaseModel):
     predicted_recall_at_cutoff: float = Field(
         ..., description="Predicted recall value at the predicted cutoff fraction"
     )
-    target_recall: Optional[float] = Field(
-        None, description="Target recall τ that was applied"
-    )
+    target_recall: float | None = Field(None, description="Target recall τ that was applied")
     confidence_score: float = Field(..., description="Confidence score of the prediction")
-    model_version: Optional[str] = Field(None, description="Version of the model used")
-    model_stage: Optional[str] = Field(None, description="MLflow stage of the model used")
+    model_version: str | None = Field(None, description="Version of the model used")
+    model_stage: str | None = Field(None, description="MLflow stage of the model used")
 
 
 CLUSTERING_TAXON_ORDER = [
-    "Baculoviridae", "Coronaviridae", "Flaviviridae", "Herelleviridae",
-    "Orthoherpesviridae", "Papillomaviridae", "Peduoviridae", "Picornaviridae",
-    "Rhabdoviridae", "Schitoviridae", "Straboviridae", "unclassified",
+    "Baculoviridae",
+    "Coronaviridae",
+    "Flaviviridae",
+    "Herelleviridae",
+    "Orthoherpesviridae",
+    "Papillomaviridae",
+    "Peduoviridae",
+    "Picornaviridae",
+    "Rhabdoviridae",
+    "Schitoviridae",
+    "Straboviridae",
+    "unclassified",
 ]
 
 
 class TelevirClusteringThresholdRequest(BaseModel):
-    classifiers: List[str] = Field(..., description="List of classifiers to use for prediction")
-    taxa: List[str] = Field(..., description="List of taxa to consider for prediction")
-    taxon_hits: List[float] = Field(
+    classifiers: list[str] = Field(..., description="List of classifiers to use for prediction")
+    taxa: list[str] = Field(..., description="List of taxa to consider for prediction")
+    taxon_hits: list[float] = Field(
         default_factory=lambda: [0.0] * len(CLUSTERING_TAXON_ORDER),
         description="Taxonomic proportion values in CLUSTERING_TAXON_ORDER order (12 values)",
     )
@@ -68,12 +74,12 @@ class TelevirClusteringThresholdRequest(BaseModel):
 class ClusteringThresholdResult(BaseModel):
     is_cluster: bool = Field(..., description="Indicates whether the cluster is valid or not")
     confidence_score: float = Field(..., description="Confidence score of the prediction")
-    model_version: Optional[str] = Field(None, description="Version of the model used")
-    model_stage: Optional[str] = Field(None, description="MLflow stage of the model used")
+    model_version: str | None = Field(None, description="Version of the model used")
+    model_stage: str | None = Field(None, description="MLflow stage of the model used")
 
 
 class CompositionStopTraversalRequest(BaseModel):
-    features: Dict[str, float] = Field(
+    features: dict[str, float] = Field(
         ...,
         description="Feature dict — keys matching training column names, values are feature values at the node",
     )
@@ -83,5 +89,5 @@ class CompositionStopTraversalResult(BaseModel):
     stop_traversal: bool = Field(..., description="Whether traversal should stop at this node")
     probability: float = Field(..., description="Probability of the stop_traversal class")
     confidence_score: float = Field(..., description="Confidence score of the prediction")
-    model_version: Optional[str] = Field(None, description="Version of the model used")
-    model_stage: Optional[str] = Field(None, description="MLflow stage of the model used")
+    model_version: str | None = Field(None, description="Version of the model used")
+    model_stage: str | None = Field(None, description="MLflow stage of the model used")

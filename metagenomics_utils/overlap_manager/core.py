@@ -1,7 +1,6 @@
 """
 Core functions for read overlap analysis.
 """
-from typing import List
 
 import numpy as np
 import pandas as pd
@@ -21,9 +20,7 @@ def pairwise_shared_count(read_profile_matrix: pd.DataFrame) -> pd.DataFrame:
         shared_reads.append(prod0)
 
     if len(shared_reads) == 0:
-        return pd.DataFrame(
-            index=read_profile_matrix.index, columns=read_profile_matrix.index
-        )
+        return pd.DataFrame(index=read_profile_matrix.index, columns=read_profile_matrix.index)
     shared_reads = np.concatenate(shared_reads, axis=0)
 
     shared_reads = pd.DataFrame(
@@ -52,7 +49,7 @@ def square_and_fill_diagonal(clade_read_matrix: pd.DataFrame) -> pd.DataFrame:
 
 def very_similar_groups_from_dataframe(
     read_profile_matrix_filtered: pd.DataFrame, threshold: float = 0.95
-) -> List[tuple]:
+) -> list[tuple]:
     """
     Find very similar entries in pairwise shared clade.
     """
@@ -65,10 +62,7 @@ def very_similar_groups_from_dataframe(
         for j in range(shared_read_matrix.shape[1]):
             if i == j:
                 continue
-            if (
-                shared_read_matrix.iloc[i, j] >= threshold
-                or shared_read_matrix.iloc[j, i] >= threshold
-            ):
+            if shared_read_matrix.iloc[i, j] >= threshold or shared_read_matrix.iloc[j, i] >= threshold:
                 assignments = [
                     clusters_assigment_dict.get(i, None),
                     clusters_assigment_dict.get(j, None),

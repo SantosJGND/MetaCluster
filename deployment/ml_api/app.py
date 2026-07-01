@@ -1,19 +1,19 @@
-from fastapi import FastAPI, HTTPException, Response
+import time
+
 import numpy as np
 import pandas as pd
+from config import RECALL_MODEL_VARIANTS, get_logger, registry_name
+from fastapi import FastAPI, HTTPException, Response
+from monitoring import log_prediction
+from registry import all_model_keys, cache_status, get_cached_model, invalidate_cache, load_and_cache
 from validation.schemas import (
-    RecallCutoffFromTableRequest,
-    RecallCutoffFromTableRow,
-    TelevirClusteringThresholdRequest,
     ClusteringThresholdResult,
-    RecallCutoffResult,
     CompositionStopTraversalRequest,
     CompositionStopTraversalResult,
+    RecallCutoffFromTableRequest,
+    RecallCutoffResult,
+    TelevirClusteringThresholdRequest,
 )
-import time
-from monitoring import log_prediction, get_metrics
-from registry import load_and_cache, get_cached_model, invalidate_cache, cache_status, all_model_keys
-from config import registry_name, get_logger, RECALL_MODEL_VARIANTS
 
 logger = get_logger(__name__)
 
@@ -93,45 +93,47 @@ def predict_recall_cutoff_from_table(request: RecallCutoffFromTableRequest, resp
     start = time.time()
     variant_key = _RECALL_VARIANT_KEYS.get(request.model)
     if variant_key is None:
-        raise HTTPException(422, detail=f"Unknown recall model '{request.model}'. Choose from: {list(_RECALL_VARIANT_KEYS)}")
+        raise HTTPException(
+            422, detail=f"Unknown recall model '{request.model}'. Choose from: {list(_RECALL_VARIANT_KEYS)}"
+        )
     try:
         bundle, version_info = get_cached_model(variant_key)
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
 
-    transformer = bundle.get('transformer')
+    transformer = bundle.get("transformer")
     if transformer is None:
-        raise HTTPException(503, detail=f"Model '{request.model}' has no transformer — not trained via the new pipeline")
+        raise HTTPException(
+            503, detail=f"Model '{request.model}' has no transformer — not trained via the new pipeline"
+        )
 
-    pipeline = bundle.get('pipeline') or bundle.get('model')
+    pipeline = bundle.get("pipeline") or bundle.get("model")
     if pipeline is None:
         raise HTTPException(503, detail=f"Model '{request.model}' has no pipeline")
 
     df = pd.DataFrame([r.model_dump() for r in request.rows])
     df[request.tax_level] = request.tax_level
     features = transformer.transform(df)
-    feat_cols = bundle.get('feature_names', transformer.get_feature_names_out())
+    feat_cols = bundle.get("feature_names", transformer.get_feature_names_out())
     X = features[feat_cols]
 
     tau = request.target_recall
     xc = request.confidence
 
-    if hasattr(pipeline, 'predict_raw'):
+    if hasattr(pipeline, "predict_raw"):
         predicted_cutoff = pipeline.predict(X.values, tau=tau, x_thresh=xc)[0]
     else:
         predicted_cutoff = pipeline.predict(X.values)[0]
 
     predicted_recall_at_cutoff = 0.0
-    if hasattr(pipeline, 'predict_raw') and hasattr(pipeline, 'n_divisions'):
+    if hasattr(pipeline, "predict_raw") and hasattr(pipeline, "n_divisions"):
         raw = pipeline.predict_raw(X.values)
-        recall_indices = getattr(pipeline, 'recall_indices_', None)
+        recall_indices = getattr(pipeline, "recall_indices_", None)
         if recall_indices is not None:
             raw_recalls = raw[0, recall_indices]
         else:
             raw_recalls = raw[0]
-        predicted_recall_at_cutoff = _interpolate_recall_at_cutoff(
-            predicted_cutoff, raw_recalls, pipeline.n_divisions
-        )
+        predicted_recall_at_cutoff = _interpolate_recall_at_cutoff(predicted_cutoff, raw_recalls, pipeline.n_divisions)
 
     latency_ms = (time.time() - start) * 1000
     log_prediction(
@@ -164,9 +166,9 @@ def predict_composition_stop_traversal(request: CompositionStopTraversalRequest,
     if pipeline is None:
         raise HTTPException(503, detail="Composition model bundle missing 'pipeline' or 'model'")
     fn = bundle.get("feature_names")
-    if fn is None and hasattr(pipeline, 'feature_names_in_'):
+    if fn is None and hasattr(pipeline, "feature_names_in_"):
         fn = pipeline.feature_names_in_
-    if fn is None and hasattr(pipeline, 'feature_names_'):
+    if fn is None and hasattr(pipeline, "feature_names_"):
         fn = pipeline.feature_names_
     if isinstance(fn, np.ndarray):
         fn = fn.tolist()
@@ -208,7 +210,7 @@ def predict_televir_clustering_threshold(request: TelevirClusteringThresholdRequ
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
 
-    X = request.to_array(feature_names=getattr(model, 'feature_names_', None))
+    X = request.to_array(feature_names=getattr(model, "feature_names_", None))
     prediction = model.predict([X])[0]
     proba = model.predict_proba([X])[0]
     confidence_score = float(max(proba))

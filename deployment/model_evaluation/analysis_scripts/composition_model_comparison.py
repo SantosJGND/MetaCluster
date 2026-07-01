@@ -30,21 +30,27 @@ Outputs (saved to ``--output_dir``):
 """
 
 import argparse
-import os
 import time
 import warnings
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
-
-from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import train_test_split
 from sklearn.metrics import (
-    accuracy_score, precision_score, recall_score, f1_score,
-    roc_auc_score, average_precision_score, roc_curve, precision_recall_curve,
-    classification_report, confusion_matrix, ConfusionMatrixDisplay,
+    ConfusionMatrixDisplay,
+    accuracy_score,
+    average_precision_score,
+    classification_report,
+    confusion_matrix,
+    f1_score,
+    precision_recall_curve,
+    precision_score,
+    recall_score,
+    roc_auc_score,
+    roc_curve,
 )
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
 
 warnings.filterwarnings("ignore")
 
@@ -53,10 +59,13 @@ class FixedThresholdClustering:
     """Baseline: stop_traversal = (Min_Shared >= 0.6).
     Mirrors the decision rule in traversal_with_clustering_fixed.
     """
+
     def fit(self, X, y):
         return self
+
     def predict(self, X):
-        return (X['Min_Shared'] >= 0.6).astype(int)
+        return (X["Min_Shared"] >= 0.6).astype(int)
+
     def predict_proba(self, X):
         preds = self.predict(X)
         proba = np.zeros((len(preds), 2))
@@ -73,8 +82,14 @@ TEST_SIZE = 0.2
 
 STATS_FEATURES = ["n_leaves", "tax_diversity", "Min_Dist", "Min_Shared"]
 DROPPED_COLS = [
-    "data_set", "node", "n_true_leaves", "precision",
-    "new_precision", "precision_increased", "stop_traversal", "unclassified",
+    "data_set",
+    "node",
+    "n_true_leaves",
+    "precision",
+    "new_precision",
+    "precision_increased",
+    "stop_traversal",
+    "unclassified",
 ]
 
 MODELS_CFG = [
@@ -169,6 +184,7 @@ MODELS_CFG = [
 # HELPERS
 ###############################################################################
 
+
 def _import_model(cfg):
     """Dynamically import a model class from a (module, class_name) spec."""
     mod = __import__(cfg["module"], fromlist=[cfg["class_name"]])
@@ -193,8 +209,9 @@ def _optuna_trial(trial, X, y, pos_weight):
         "random_state": RANDOM_STATE,
         "n_jobs": -1,
     }
-    from sklearn.model_selection import cross_val_score, StratifiedKFold
+    from sklearn.model_selection import StratifiedKFold, cross_val_score
     from xgboost import XGBClassifier
+
     model = XGBClassifier(**params)
     cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=RANDOM_STATE)
     scores = cross_val_score(model, X, y, cv=cv, scoring="roc_auc", n_jobs=-1)
@@ -204,6 +221,7 @@ def _optuna_trial(trial, X, y, pos_weight):
 def _train_with_optuna(X_train, y_train, pos_weight, n_trials=50):
     """Run Optuna optimisation and return best model."""
     import optuna
+
     study = optuna.create_study(direction="maximize")
     study.optimize(
         lambda trial: _optuna_trial(trial, X_train, y_train, pos_weight),
@@ -211,6 +229,7 @@ def _train_with_optuna(X_train, y_train, pos_weight, n_trials=50):
         show_progress_bar=True,
     )
     from xgboost import XGBClassifier
+
     best = XGBClassifier(**study.best_trial.params)
     best.fit(X_train, y_train)
     return best, study
@@ -242,9 +261,11 @@ def evaluate_model(y_true, y_pred, y_prob):
 # PLOTTING
 ###############################################################################
 
+
 def plot_roc_curves(results, save_path):
     """Plot ROC curves for all models on a single axis."""
     import matplotlib
+
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
@@ -268,6 +289,7 @@ def plot_roc_curves(results, save_path):
 def plot_pr_curves(results, save_path):
     """Plot Precision-Recall curves for all models."""
     import matplotlib
+
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
@@ -275,10 +297,15 @@ def plot_pr_curves(results, save_path):
     for r in results:
         if r["precision_curve"] is None or r["recall_curve"] is None:
             continue
-        ax.plot(r["recall_curve"], r["precision_curve"], lw=1.5,
-                label=f"{r['name']} (AUC={r['pr_auc']:.3f})")
-    ax.axhline(y=results[0].get("pos_ratio", 0.35), color="gray", ls="--", lw=1, alpha=0.5,
-               label=f"Prevalence ({results[0].get('pos_ratio', 0.35):.2f})")
+        ax.plot(r["recall_curve"], r["precision_curve"], lw=1.5, label=f"{r['name']} (AUC={r['pr_auc']:.3f})")
+    ax.axhline(
+        y=results[0].get("pos_ratio", 0.35),
+        color="gray",
+        ls="--",
+        lw=1,
+        alpha=0.5,
+        label=f"Prevalence ({results[0].get('pos_ratio', 0.35):.2f})",
+    )
     ax.set_xlabel("Recall")
     ax.set_ylabel("Precision")
     ax.set_title("Precision-Recall Curves -- stop_traversal prediction")
@@ -293,6 +320,7 @@ def plot_pr_curves(results, save_path):
 def plot_f1_comparison(results, save_path):
     """Bar chart of F1 scores."""
     import matplotlib
+
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
@@ -303,8 +331,7 @@ def plot_f1_comparison(results, save_path):
     fig, ax = plt.subplots(figsize=(9, 5))
     bars = ax.barh(names, f1_vals, color=colors, edgecolor="black", height=0.6)
     for bar, val in zip(bars, f1_vals):
-        ax.text(bar.get_width() + 0.005, bar.get_y() + bar.get_height() / 2,
-                f"{val:.3f}", va="center", fontsize=9)
+        ax.text(bar.get_width() + 0.005, bar.get_y() + bar.get_height() / 2, f"{val:.3f}", va="center", fontsize=9)
     ax.set_xlabel("F1 Score")
     ax.set_title("F1 Score (positive class = stop_traversal)")
     ax.set_xlim(0, 1.0)
@@ -318,6 +345,7 @@ def plot_f1_comparison(results, save_path):
 def plot_precision_recall_bars(results, save_path):
     """Grouped bar chart of Precision / Recall / F1 per model."""
     import matplotlib
+
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
@@ -345,6 +373,7 @@ def plot_precision_recall_bars(results, save_path):
 def plot_confusion_matrices(results, save_path):
     """Grid of normalised confusion matrices."""
     import matplotlib
+
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
@@ -376,6 +405,7 @@ def plot_confusion_matrices(results, save_path):
 def plot_feature_importance(results, save_path, top_n=15):
     """Top-N feature importance for each model with feature importances."""
     import matplotlib
+
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
@@ -409,6 +439,7 @@ def plot_feature_importance(results, save_path, top_n=15):
 def plot_training_time(results, save_path):
     """Bar chart of training time per model."""
     import matplotlib
+
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
@@ -419,8 +450,7 @@ def plot_training_time(results, save_path):
     fig, ax = plt.subplots(figsize=(9, 4))
     bars = ax.barh(names, times, color=colors, edgecolor="black", height=0.6)
     for bar, val in zip(bars, times):
-        ax.text(bar.get_width() + 0.02, bar.get_y() + bar.get_height() / 2,
-                f"{val:.2f}s", va="center", fontsize=9)
+        ax.text(bar.get_width() + 0.02, bar.get_y() + bar.get_height() / 2, f"{val:.2f}s", va="center", fontsize=9)
     ax.set_xlabel("Training Time (seconds)")
     ax.set_title("Training Time by Model")
     ax.grid(True, alpha=0.3, axis="x")
@@ -434,18 +464,23 @@ def plot_training_time(results, save_path):
 # MAIN
 ###############################################################################
 
+
 def get_args():
     parser = argparse.ArgumentParser(
         description="Compare composition (stop_traversal) models side-by-side.",
     )
-    parser.add_argument("--output_dir", type=str,
-                        default="composition_comparison_outputs",
-                        help="Output directory for results "
-                             "(default: composition_comparison_outputs)")
-    parser.add_argument("--input_cache", type=str,
-                        default="deployment/ml_api/training_results_cache.parquet",
-                        help="Path to training data cache parquet file "
-                             "(default: deployment/ml_api/training_results_cache.parquet)")
+    parser.add_argument(
+        "--output_dir",
+        type=str,
+        default="composition_comparison_outputs",
+        help="Output directory for results (default: composition_comparison_outputs)",
+    )
+    parser.add_argument(
+        "--input_cache",
+        type=str,
+        default="deployment/ml_api/training_results_cache.parquet",
+        help="Path to training data cache parquet file (default: deployment/ml_api/training_results_cache.parquet)",
+    )
     return parser.parse_args()
 
 
@@ -481,13 +516,16 @@ def main():
 
     tax_cols = [c for c in X_raw.columns if c not in STATS_FEATURES]
 
-    print(f"\nFeature breakdown:")
+    print("\nFeature breakdown:")
     print(f"  Stats cols ({len(STATS_FEATURES)}): {STATS_FEATURES}")
     print(f"  Taxonomy cols ({len(tax_cols)}): {tax_cols}")
     print(f"  Target distribution:\n    {y.value_counts().to_dict()}")
 
     X_train, X_test, y_train, y_test = train_test_split(
-        X_raw, y, test_size=TEST_SIZE, random_state=RANDOM_STATE,
+        X_raw,
+        y,
+        test_size=TEST_SIZE,
+        random_state=RANDOM_STATE,
         stratify=y,
     )
     print(f"\nTrain/Test split: {len(X_train)} / {len(X_test)}")
@@ -540,7 +578,10 @@ def main():
         if cfg["use_optuna"]:
             t0 = time.time()
             model, study = _train_with_optuna(
-                X_tr.values, y_train.values, pos_weight, n_trials=50,
+                X_tr.values,
+                y_train.values,
+                pos_weight,
+                n_trials=50,
             )
             train_time = time.time() - t0
             print(f"  Best params: {study.best_trial.params}")
@@ -599,16 +640,18 @@ def main():
 
     summary_rows = []
     for r in all_results:
-        summary_rows.append({
-            "Model": r["name"],
-            "Accuracy": round(r["accuracy"], 4),
-            "Precision": round(r["precision"], 4),
-            "Recall": round(r["recall"], 4),
-            "F1": round(r["f1"], 4),
-            "ROC-AUC": round(r["roc_auc"], 4),
-            "PR-AUC": round(r["pr_auc"], 4),
-            "Train_Time_s": round(r["train_time"], 2),
-        })
+        summary_rows.append(
+            {
+                "Model": r["name"],
+                "Accuracy": round(r["accuracy"], 4),
+                "Precision": round(r["precision"], 4),
+                "Recall": round(r["recall"], 4),
+                "F1": round(r["f1"], 4),
+                "ROC-AUC": round(r["roc_auc"], 4),
+                "PR-AUC": round(r["pr_auc"], 4),
+                "Train_Time_s": round(r["train_time"], 2),
+            }
+        )
     summary_df = pd.DataFrame(summary_rows).sort_values("F1", ascending=False)
     csv_path = output_dir / "comparison_results.csv"
     summary_df.to_csv(csv_path, index=False)
@@ -629,7 +672,7 @@ def main():
             f.write(f"Train time: {r['train_time']:.2f}s\n")
     print(f"\nDetailed report saved to {report_path}")
 
-    print(f"\nGenerating plots...")
+    print("\nGenerating plots...")
     plot_roc_curves(all_results, output_dir / "roc_curves.png")
     plot_pr_curves(all_results, output_dir / "pr_curves.png")
     plot_f1_comparison(all_results, output_dir / "f1_comparison.png")
