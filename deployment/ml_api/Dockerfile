@@ -7,6 +7,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
+RUN rm -f \
+    metagenomics_utils/ncbi_tools.py \
+    metagenomics_utils/reference_utils.py \
+    metagenomics_utils/core.py \
+    metagenomics_utils/dataframe_utils.py
+
 RUN apt-get update && \
     apt-get install -y git && \
     rm -rf /var/lib/apt/lists/*
@@ -17,4 +23,4 @@ ENV MLFLOW_EXPERIMENT=INSaFLU_ML_API
 
 EXPOSE 8000
 
-CMD ["uvicorn", "ml_api.app:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]

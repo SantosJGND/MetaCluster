@@ -9,7 +9,6 @@ from metagenomics_utils.overlap_manager.diversity import (
     shannon_diversity_from_list,
     skewness,
 )
-from metagenomics_utils.overlap_manager.manager import OverlapManager, merge_by_assembly_ID, merge_to_matched
 from metagenomics_utils.overlap_manager.node_stats import (
     compute_node_purity,
     compute_node_stats,
@@ -25,3 +24,11 @@ from metagenomics_utils.overlap_manager.node_stats import (
     normalize_by_taxlevel,
     update_df_best_match,
 )
+
+
+def __getattr__(name):
+    if name in ("OverlapManager", "merge_by_assembly_ID", "merge_to_matched"):
+        from metagenomics_utils.overlap_manager.manager import OverlapManager, merge_by_assembly_ID, merge_to_matched
+        _imports = {"OverlapManager": OverlapManager, "merge_by_assembly_ID": merge_by_assembly_ID, "merge_to_matched": merge_to_matched}
+        return _imports[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

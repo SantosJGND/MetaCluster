@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 import os
 import warnings
@@ -19,7 +21,6 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from xgboost import XGBClassifier
 
-from metagenomics_utils.overlap_manager import OverlapManager
 from metagenomics_utils.overlap_manager.node_stats import (
     get_composition_by_leaf,
     get_m_stats_matrix,
@@ -557,6 +558,19 @@ class InjectModellerInterface:
 
 class RecallModeller:
     model_save_filename = "recall_xgb_bundle.pkl"
+
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        state.pop("X_test", None)
+        state.pop("y_test", None)
+        state.pop("model_interface", None)
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        self.X_test = None
+        self.y_test = None
+        self.model_interface = None
 
     def __init__(
         self,
@@ -1135,6 +1149,29 @@ class GPCLFThreshold(RegressorMixin, BaseEstimator):
             "max_uniq_reads",
             "total_uniq_reads",
         }
+
+    def __getstate__(self):
+        state = super().__getstate__()
+        for attr in ("_stats_features", "taxonomy_cols", "optimize",
+                     "filter_degenerate", "binarize_taxonomy", "val_split",
+                     "random_state", "feature_names_", "target_names_"):
+            state.pop(attr, None)
+        return state
+
+    def __setstate__(self, state):
+        super().__setstate__(state)
+        self._stats_features = {
+            "counts_kurtosis", "counts_skewness", "tax_diversity_shannon",
+            "max_uniq_reads", "total_uniq_reads",
+        }
+        self.taxonomy_cols = None
+        self.optimize = True
+        self.filter_degenerate = True
+        self.binarize_taxonomy = True
+        self.val_split = 0.2
+        self.random_state = 42
+        self.feature_names_ = None
+        self.target_names_ = None
 
     def fit(self, X, y, target_names=None):
         """
@@ -1813,14 +1850,8 @@ def cut_off_recall_prediction(
     Returns:
         Tuple of (OverlapManager, metrics dict).
     """
+    from metagenomics_utils.overlap_manager import OverlapManager
     target_percentile = modeller.predict_cutoff(m_stats_stats_matrix, target_recall, confidence)
-
-    print("##############################################")
-    print(f"cut_off_recall_prediction: target_percentile={target_percentile:.4f}")
-    print(f"                        target_recall={target_recall}")
-    print(f"                        confidence={confidence}")
-    print("##############################################")
-
     keep_index = round(target_percentile * m_stats_stats_matrix.shape[0])
     if keep_index == 0:
         keep_index = 1
@@ -1943,6 +1974,31 @@ class ClusteringPipeline(BaseEstimator, ClassifierMixin):
 
         return self
 
+    def __getstate__(self):
+        state = super().__getstate__()
+        state.pop("study_", None)
+        state.pop("taxon_cols", None)
+        state.pop("optuna_trials", None)
+        state.pop("use_optuna", None)
+        state.pop("scale_pos_weight", None)
+        state.pop("xgb_params", None)
+        state.pop("feature_names", None)
+        state.pop("feature_names_", None)
+        state.pop("random_state", None)
+        return state
+
+    def __setstate__(self, state):
+        super().__setstate__(state)
+        self.study_ = None
+        self.taxon_cols = []
+        self.optuna_trials = 0
+        self.use_optuna = False
+        self.scale_pos_weight = "auto"
+        self.xgb_params = {}
+        self.feature_names = None
+        self.feature_names_ = None
+        self.random_state = 42
+
     def _train_with_optuna(self, X, y, pos_weight):
         import optuna
         from sklearn.model_selection import StratifiedKFold, cross_val_score
@@ -2048,6 +2104,21 @@ class BaseCompositionModeller(ABC):
         self.y_train = None
         self.y_test = None
         self._feature_names = None
+
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        state.pop("X_train", None)
+        state.pop("X_test", None)
+        state.pop("y_train", None)
+        state.pop("y_test", None)
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        self.X_train = None
+        self.X_test = None
+        self.y_train = None
+        self.y_test = None
 
     @abstractmethod
     def _build_pipeline(self, X_train, y_train):

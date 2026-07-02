@@ -23,6 +23,16 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **`__getstate__`/`__setstate__` on 4 custom model classes** (`RecallModeller`, `GPCLFThreshold`, `ClusteringPipeline`, `BaseCompositionModeller`) — strips training-only attributes (`X_test`, `y_test`, `study_`, training DataFrames, etc.) from serialized pickles; `__setstate__` re-inits defaults. Existing models must be retrained.
+- **Lazy imports in `metagenomics_utils`** — `networkx`, `NCBITaxonomistWrapper`, `OverlapManager` moved from module-level to inside training-only functions; `overlap_manager/__init__.py` uses `__getattr__` for `OverlapManager`/`merge_*`; `metagenomics_utils/__init__.py` no longer re-exports `ncbi_tools` or `OverlapManager`. `from __future__ import annotations` added to `node_stats.py` and `om_models.py`.
+
+### Removed
+
+- **`biopython`, `matplotlib`, `optuna` from `ml_api/requirements.txt`** — no longer needed at inference time.
+- **Heavy files from Docker image** — `ncbi_tools.py`, `reference_utils.py`, `core.py`, `dataframe_utils.py` deleted from `COPY` in `deployment/ml_api/Dockerfile`.
+
 ### Added
 
 - **Per-taxid recall GEE models** (`deployment/model_evaluation/analysis_data_extractor.py`) — `collect_recall_data()` builds per-taxid binary recall records inside `process_dataset()`; `fit_recall_gee()` fits Binomial GEE (`statsmodels.GEE`, `family=Binomial`, `cov_struct=Independence`, `groups=data_set`); `save_recall_summary()`, `plot_recall_calibration()`, `plot_recall_surface()` produce coefficient tables, calibration/ROC curves, and probability surface plots. Three formula variants in `RECALL_FORMULAS`: A (`~ log_reads + mutation_rate + I(mutation_rate²) + C(order)`), B (`~ log_reads * mutation_rate + I(mutation_rate²) + C(order)`), C (`~ log_reads + mutation_rate + C(order)`).

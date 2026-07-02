@@ -1,12 +1,11 @@
+from __future__ import annotations
+
 import os
 from collections import Counter
 
-import networkx as nx
 import numpy as np
 import pandas as pd
 
-from metagenomics_utils.ncbi_tools import NCBITaxonomistWrapper
-from metagenomics_utils.overlap_manager import OverlapManager
 from metagenomics_utils.overlap_manager.diversity import (
     kurtosis,
     shannon_diversity_from_list,
@@ -116,7 +115,7 @@ def get_m_stats_matrix(
     overlap_manager: OverlapManager,
     cross_hit_threshold: float = 0.3,
     min_taxonomic_score: float = 0.7,
-    best_match_level: str = NCBITaxonomistWrapper.TAX_SPECIES,
+    best_match_level: str = "species",
     filter_no_leaf=True,
     log=False,
 ):
@@ -242,6 +241,7 @@ def _merge_matched_stats(m_stats, matched):
 
 def _compute_best_matches(m_stats, input_taxids, ncbi_wrapper, overlap_manager, min_taxonomic_score):
     """Annotate best-match taxid, leaf, lineage, and mark best-of-group."""
+    from metagenomics_utils.ncbi_tools import NCBITaxonomistWrapper
     from metagenomics_utils.overlap_manager.manager import merge_by_assembly_ID
 
     m_stats = m_stats.apply(
@@ -326,6 +326,7 @@ def _finalize_m_stats(m_stats, filter_no_leaf):
 
 
 def node_total_true_leaves(overlap_manager, node, m_stats_stats_matrix) -> list:
+    import networkx as nx
     tree = overlap_manager.tree
 
     descendants = nx.descendants(tree, node)
@@ -346,6 +347,7 @@ def node_total_true_leaves(overlap_manager, node, m_stats_stats_matrix) -> list:
 
 
 def node_leaves_best_taxids(overlap_manager, node, m_stats_stats_matrix) -> list:
+    import networkx as nx
     tree = overlap_manager.tree
 
     descendants = nx.descendants(tree, node)
@@ -359,6 +361,7 @@ def node_leaves_best_taxids(overlap_manager, node, m_stats_stats_matrix) -> list
 
 
 def node_leaf_shannon_tax_diversity(overlap_manager, node, m_stats_stats_matrix, tax_level: str = "order") -> float:
+    import networkx as nx
 
     tree = overlap_manager.tree
 
@@ -484,6 +487,7 @@ def get_composition_by_leaf(overlap_manager, m_stats_stats_matrix, tax_data: pd.
 
 
 def compute_node_stats(overlap_manager) -> pd.DataFrame:
+    import networkx as nx
     all_node_stats = overlap_manager.all_node_stats.copy()
     dist_cache = {
         n: nx.single_source_shortest_path_length(overlap_manager.tree.to_undirected(), n)
@@ -511,6 +515,7 @@ def compute_node_purity(overlap_manager, m_stats_stats_matrix) -> pd.DataFrame:
     node_purity = {}
 
     for node in tree.nodes:
+        import networkx as nx
         descendants = nx.descendants(tree, node)
         leaves = [n for n in descendants if tree.out_degree(n) == 0]
         if tree.out_degree(node) == 0:
@@ -537,6 +542,7 @@ def compute_node_purity(overlap_manager, m_stats_stats_matrix) -> pd.DataFrame:
 
 def all_antichains_covering_leaves(overlap_manager, purity_df: pd.DataFrame) -> list[list]:
     antichains_keep = []
+    import networkx as nx
     tree = overlap_manager.tree
     for antichain in nx.antichains(tree):
         anti_chain_df = pd.DataFrame(antichain, columns=["Node"])
