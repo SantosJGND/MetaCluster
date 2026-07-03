@@ -26,6 +26,8 @@ def warmup_cache():
         try:
             load_and_cache(mt)
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             logger.warning(f"Failed to preload '{mt}': {e}")
     logger.info(f"Cache warmup complete ({cache_status()})")
 
