@@ -111,15 +111,27 @@ class NCBITaxonomistWrapper:
         logging.basicConfig(level=logging.INFO)
         self.logger.info("NCBI Taxonomist Wrapper initialized.")
 
+    @staticmethod
+    def _get_ncbi_bin() -> str:
+        """Return path to ncbi-taxonomist binary, preferring venv over pyenv shims."""
+        import sys
+        from pathlib import Path
+        venv_bin = Path(sys.executable).parent / "ncbi-taxonomist"
+        if venv_bin.exists():
+            return str(venv_bin)
+        return "ncbi-taxonomist"
+
     def retrieve_lineages_cmd_local(self, taxids: list[int]) -> str:
         taxids_str = ",".join(str(t) for t in taxids)
-        cmd = f"ncbi-taxonomist resolve -t {taxids_str} -db {self.db_path} "
+        ncbi_bin = self._get_ncbi_bin()
+        cmd = f"{ncbi_bin} resolve -t {taxids_str} -db {self.db_path} "
         self.logger.info("Retrieving taxids from local database")
         return cmd
 
     def retrieve_lineages_cmd_import(self, taxids: list[int]) -> str:
         taxids_str = ",".join(str(t) for t in taxids)
-        cmd = f"ncbi-taxonomist resolve -t {taxids_str} --remote | ncbi-taxonomist import --database {self.db_path} "
+        ncbi_bin = self._get_ncbi_bin()
+        cmd = f"{ncbi_bin} resolve -t {taxids_str} --remote | {ncbi_bin} import --database {self.db_path} "
         return cmd
 
     def split_taxids(self, taxids: list[int], chunk_size=50) -> Generator[list[int], None, None]:
