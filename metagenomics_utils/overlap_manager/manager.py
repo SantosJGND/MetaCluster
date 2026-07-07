@@ -7,9 +7,8 @@ import pandas as pd
 from Bio import Phylo
 from Bio.Phylo.TreeConstruction import DistanceMatrix, DistanceTreeConstructor
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+logger.addHandler(logging.NullHandler())
 
 
 def merge_by_assembly_ID(m_stats_matrix: pd.DataFrame) -> pd.DataFrame:
@@ -33,8 +32,9 @@ def merge_to_matched(row, matched):
         return row
 
     file = row["file"]
+    file_basename = os.path.basename(file)
     matched_assids = matched["assembly_accession"].tolist()
-    match_assid = [assid for assid in matched_assids if assid in file]
+    match_assid = [assid for assid in matched_assids if assid in file_basename]
     if match_assid:
         row["taxid"] = matched.loc[matched["assembly_accession"] == match_assid[0], "taxid"].values[0]
         row["assid"] = match_assid[0]
@@ -50,6 +50,47 @@ def merge_to_matched(row, matched):
     return row
 
 
+def _merge_matched_vectorized(m_stats: pd.DataFrame, matched: pd.DataFrame) -> pd.DataFrame:
+    import re
+ 
+    if matched.empty:
+        result = m_stats.copy()
+        result["taxid"] = None
+        result["assid"] = None
+        result["description"] = None
+        result["total_uniq_reads"] = 0
+        return result
+
+    matched_sorted = matched.sort_values(
+        "assembly_accession",
+        key=lambda x: x.str.len(),
+        ascending=False,
+    )
+    pattern = "(" + "|".join(re.escape(a) for a in matched_sorted["assembly_accession"]) + ")"
+    file_basenames = m_stats["file"].apply(os.path.basename)
+    matched_acc = file_basenames.str.extract(pattern, expand=False)
+
+    result = m_stats.copy()
+    result["_matched_acc"] = matched_acc
+
+    result = result.merge(
+        matched_sorted[["assembly_accession", "taxid", "description", "total_uniq_reads"]],
+        left_on="_matched_acc",
+        right_on="assembly_accession",
+        how="left",
+        suffixes=("", "_r"),
+    )
+
+    result["assid"] = result["_matched_acc"].where(result["_matched_acc"].notna(), None)
+    result["taxid"] = result["taxid"].astype(object).where(result["taxid"].notna(), None)
+    result["description"] = result["description"].astype(object).where(result["description"].notna(), None)
+    result["total_uniq_reads"] = result["total_uniq_reads"].fillna(0).astype(int)
+
+    result.drop(columns=["_matched_acc", "assembly_accession_r"], inplace=True, errors="ignore")
+
+    return result
+
+
 class OverlapManager:
     """
     Manages overlap-based clustering analysis for metagenomic data.
@@ -62,6 +103,7 @@ class OverlapManager:
         self, output_dir: str, max_proportion: float = 1.0, max_taxids: int | None = None, skip_build: bool = False
     ):
         self.output_dir = output_dir
+        self.data_set_name = output_dir.split('/')[-2]
         self.distance_matrix_filepath = os.path.join(output_dir, "distance_matrix.tsv")
         self.rundir = os.path.dirname(output_dir)
         self.max_proportion = max_proportion
@@ -78,6 +120,7 @@ class OverlapManager:
         self.distance_mat = pd.DataFrame()
         self.original_m_stats_matrix = pd.DataFrame()
         self.m_stats_matrix = pd.DataFrame()
+        self.node_leaves_cache: dict[str, list[str]] = {}
 
         if not skip_build and self.check_data_available():
             self.build()
@@ -88,7 +131,9 @@ class OverlapManager:
         try:
             self.new_tree_from_distance_matrix()
             self.prune_empty_nodes()
+            self._rebuild_node_leaves_cache()
             self.recalculate_all_min_pairwise_dist()
+            print("recalc")
         except Exception as e:
             import traceback
 
@@ -99,51 +144,13 @@ class OverlapManager:
         self.root_nodes = [n for n, d in self.tree.in_degree() if d == 0]
         self.leaves = [n for n, d in self.tree.out_degree() if d == 0]
 
-    def clade_shared_by_pair(self, leaves: list) -> pd.DataFrame:
-        group = self.read_profile_matrix_filtered.loc[leaves]
-        group_pairwise_shared = pairwise_shared_count(group)
-
-        group_pairwise_shared /= group.sum(axis=1)
-
-        combinations = []
-
-        for i in range(group_pairwise_shared.shape[0]):
-            group_pairwise_shared.iloc[i, i] = 0
-            for j in range(i + 1, group_pairwise_shared.shape[1]):
-                shared_ij = group_pairwise_shared.iloc[i, j]
-                shared_ji = group_pairwise_shared.iloc[j, i]
-                shared_pair = (shared_ij, shared_ji)
-
-                combinations.append(
-                    [
-                        group_pairwise_shared.index[i],
-                        group_pairwise_shared.columns[j],
-                        max(shared_pair),
-                        min(shared_pair),
-                        np.std(shared_pair),
-                    ]
-                )
-
-        combinations = pd.DataFrame(
-            combinations,
-            columns=[
-                "accid_A",
-                "accid_B",
-                "proportion_max",
-                "proportion_min",
-                "proportion_std",
-            ],
-        )
-
-        return combinations
-
     def get_leaf(self, row):
         accession = row["assid"]
         if accession is None or pd.isna(accession):
             return None
 
         for leaf in self.all_leaves_global:
-            if accession in leaf:
+            if leaf == accession or leaf.endswith(accession) or accession in leaf:
                 return leaf
         return None
 
@@ -185,7 +192,7 @@ class OverlapManager:
         return pd.DataFrame(edges, columns=["node1", "node2"])
 
     def njbio_from_distance_matrix(self, distance_matrix: pd.DataFrame):
-        """ """
+        """Build NetworkX DiGraph from a Bio.Phylo distance-based tree."""
         tree = self.tree_from_distance_matrix(distance_matrix)
 
         self.all_edges = self.bio_tree_edges_to_dataframe(tree)
@@ -216,6 +223,8 @@ class OverlapManager:
             distance_matrix.index = distance_matrix.index.map(str)
             distance_matrix.columns = distance_matrix.columns.map(str)
             return distance_matrix
+        
+        return pd.DataFrame()
 
     def new_tree_from_distance_matrix(self):
         """
@@ -231,44 +240,22 @@ class OverlapManager:
             merged_classification_results_filepath = os.path.join(
                 self.rundir, "classification", f"{os.path.basename(self.rundir)}_merged_classification.tsv"
             )
+            from metagenomics_utils.overlap_manager.node_stats import _resolve_assembly_classifications
+
             merged_classification_results = pd.read_csv(merged_classification_results_filepath, sep="\t")
 
-            def find_assembly_classification(row):
-                taxid = row["taxid"]
-                match = merged_classification_results[merged_classification_results["taxid"] == taxid]
-                if match.empty:
-                    row["classifiers"] = "unclassified"
-                    row["total_uniq_reads"] = 0
-                else:
-                    if "classifiers" in match.columns:
-                        row["classifiers"] = match["classifiers"].values[0]
-                    elif "classification" in match.columns:
-                        row["classifiers"] = match["classification"].values[0]
-                    else:
-                        raise ValueError("No classification found")
-                    if "total_uniq_reads" in match.columns:
-                        row["total_uniq_reads"] = match["total_uniq_reads"].values[0]
-                    elif "uniq_reads" in match.columns:
-                        row["total_uniq_reads"] = match["uniq_reads"].values[0]
-                    else:
-                        row["total_uniq_reads"] = 0
-
-                return row
-
             matched = pd.read_csv(matched_assemblies_file, sep="\t")
-            matched["assembly_file"] = matched["assembly_file"].apply(lambda x: os.path.basename(x))
-            matched = matched.apply(find_assembly_classification, axis=1)
-            matched = matched.sort_values(by=["total_uniq_reads"], ascending=False).drop_duplicates(
-                subset=["assembly_accession"], keep="first"
-            )
+
+            matched = _resolve_assembly_classifications(matched, merged_classification_results)
             self.original_m_stats_matrix = (
                 pd.read_csv(merged_stats_file, sep="\t").rename(columns={"#rname": "assembly_accession"})
                 if os.path.exists(merged_stats_file)
                 else pd.DataFrame()
             )
             self.m_stats_matrix = self.original_m_stats_matrix.copy()
+
             if not self.m_stats_matrix.empty and "total_uniq_reads" in matched.columns:
-                self.m_stats_matrix = self.m_stats_matrix.apply(merge_to_matched, axis=1, matched=matched)
+                self.m_stats_matrix = _merge_matched_vectorized(self.m_stats_matrix, matched)
 
             self.m_stats_matrix = merge_by_assembly_ID(self.m_stats_matrix)
             if not self.m_stats_matrix.empty and "total_uniq_reads" in matched.columns:
@@ -281,6 +268,7 @@ class OverlapManager:
             distance_matrix = self.read_distance_matrix()
 
             self.m_stats_matrix["leaf"] = self.m_stats_matrix.apply(self.get_leaf, axis=1)
+
             self.m_stats_matrix = self.m_stats_matrix.dropna(subset=["leaf"])
             self.m_stats_matrix.set_index("leaf", inplace=True)
 
@@ -324,10 +312,14 @@ class OverlapManager:
             self.all_edges = pd.DataFrame(self.tree.edges(), columns=["node1", "node2"])
 
     def recreate_all_node_stats_from_tree(self):
+        self._rebuild_node_leaves_cache()
 
         new_stats = []
         for node in self.all_nodes:
-            leaves = self.get_node_leaves(node)
+            leaves = self.node_leaves_cache.get(node, [])
+
+            if not leaves:
+                continue
 
             distance_matrix_subset = self.distance_mat.loc[leaves, leaves]
             min_dist = distance_matrix_subset.min().min()
@@ -347,118 +339,109 @@ class OverlapManager:
                 columns=["Node", "Num_Leaves", "Min_Dist", "Private_Reads", "Private_Proportion"]
             )
 
-    def weighted_proximity(self, leaf1: str, leaf2: str, distance_matrix: pd.DataFrame) -> float:
-
-        if leaf1 not in distance_matrix.index or leaf2 not in distance_matrix.columns:
-            return float("nan")
-
-        dist_ij = distance_matrix.loc[leaf1, leaf2]
-        if leaf1 == leaf2:
-            return 1.0
-
-        ### Weight by coverage and mapping quality
-        i_stats = self.m_stats_matrix.loc[leaf1] if leaf1 in self.m_stats_matrix.index else None
-        j_stats = self.m_stats_matrix.loc[leaf2] if leaf2 in self.m_stats_matrix.index else None
-
-        if i_stats is None or j_stats is None:
-            return 0.0
-
-        weight_ij_er = (j_stats["error_rate"] / i_stats["error_rate"]) if i_stats["error_rate"] > 0 else 1
-        weight_ij_er = 1 / weight_ij_er if weight_ij_er > 1 else weight_ij_er
-        weight_ij = weight_ij_er
-        wdist_ij = dist_ij * weight_ij
-        # wdist_ij = wdist_ij *
-        #####
-        mapped_reads_i = i_stats["numreads"] if i_stats is not None else 0
-        shared_reads_ij = mapped_reads_i * dist_ij
-        nom = shared_reads_ij * j_stats["error_rate"]
-        denom = nom + mapped_reads_i * i_stats["error_rate"]
-
-        return wdist_ij if wdist_ij < 1 else 1 / wdist_ij
-
     def weighted_matrix(self, distance_matrix: pd.DataFrame) -> pd.DataFrame:
-        weighted_mat = distance_matrix.copy()
-        # remove duplicated indices and columns
+        """
+        Weight the distance matrix by the relative error rates of mappings against respective assemblies. 
 
-        for i in distance_matrix.index:
-            for j in distance_matrix.index:
-                weighted_mat.loc[i, j] = self.weighted_proximity(i, j, distance_matrix)
+        """
+        valid_idx = []
+        err_vals = []
+        for orig_idx in distance_matrix.index:
+            assid = orig_idx.strip("./").strip(self.data_set_name).strip(".fna.bam")
+            assid = "_".join(assid.split("_")[1:])
+            match = self.m_stats_matrix[self.m_stats_matrix["assid"] == assid]
+            if not match.empty:
+                valid_idx.append(orig_idx)
+                err_vals.append(match["error_rate"].values[0])
 
-        return weighted_mat
+        distance_matrix = distance_matrix.loc[valid_idx, valid_idx]
+        values = distance_matrix.values
+        index = distance_matrix.index
+        cols = distance_matrix.columns
+        n = distance_matrix.shape[0]
+
+        if n == 0:
+            return pd.DataFrame()
+
+        err = np.array(err_vals)
+        ratio = err[np.newaxis, :] / np.maximum(err[:, np.newaxis], 1e-10)
+        ratio = np.where(ratio > 1.0, 1.0 / ratio, ratio)
+
+        weighted = values * ratio
+
+        mask = weighted >= 1.0
+        weighted[mask] = 1.0 / weighted[mask]
+
+        np.fill_diagonal(weighted, 1.0)
+
+        return pd.DataFrame(weighted, index=index, columns=cols)
 
     def matrix_symmetrize_mean(self, distance_matrix: pd.DataFrame) -> pd.DataFrame:
-        sym_matrix = distance_matrix.copy()
-        for i in distance_matrix.index:
-            for j in distance_matrix.columns:
-                if i != j:
-                    sym_matrix.loc[i, j] = np.min([distance_matrix.loc[i, j], distance_matrix.loc[j, i]])
-                    sym_matrix.loc[j, i] = sym_matrix.loc[i, j]
-
-        return sym_matrix
+        vals = distance_matrix.values
+        sym = np.maximum(vals, vals.T)
+        return pd.DataFrame(sym, index=distance_matrix.index, columns=distance_matrix.columns)
 
     def recalculate_all_min_pairwise_dist(self):
-        if os.path.exists(self.distance_matrix_filepath):
-            #
-            distance_matrix = self.read_distance_matrix()
-            proximity_matrix = 1 - distance_matrix
+        if not os.path.exists(self.distance_matrix_filepath):
+            return
 
-            weighted_proximity_matrix = self.weighted_matrix(proximity_matrix)
+        distance_matrix = self.read_distance_matrix()
+        proximity_matrix = 1 - distance_matrix
+        weighted_proximity_matrix = self.weighted_matrix(proximity_matrix)
+        wp_values = weighted_proximity_matrix.values
+        index_arr = list(weighted_proximity_matrix.index)
+        index_to_pos = {name: i for i, name in enumerate(index_arr)}
 
-            def new_min_distance(row):
-                node = row["Node"]
-                leaves = self.get_leaves_parted(node)
-                all_leaves = [x for sublist in leaves for x in sublist]
+        def calc_node_stats(node):
+            leaves_parted = self.get_leaves_parted(node)
+            if len(leaves_parted) < 2:
+                return {"Min_Pairwise_Dist": 0, "Min_Shared": 0, "Min_Dist": 0}
 
-                other_leaves = [n for n in self.leaves if n not in all_leaves]
-                if len(leaves) < 2:
-                    row["Min_Pairwise_Dist"] = 0
-                    row["Min_Shared"] = 0
-                    row["Min_Dist"] = 0
-                    return row
+            left = leaves_parted[0]
+            right = leaves_parted[1]
+            left_pos = [index_to_pos[l] for l in left]
+            right_pos = [index_to_pos[l] for l in right]
+            all_pos = left_pos + right_pos
 
-                distances = []
-                leaves_left = leaves[0]
-                leaves_right = leaves[1]
-                distance_external = []
+            sub = wp_values[np.ix_(left_pos, right_pos)]
+            pair_dists = sub #np.maximum(sub, sub.T)
+            min_dist = float(pair_dists.min()) if pair_dists.size > 0 else 0.0
 
-                for i in range(len(leaves_left)):
-                    for j in range(len(leaves_right)):
-                        wij_dist = weighted_proximity_matrix.loc[leaves_left[i], leaves_right[j]]
-                        wji_dist = weighted_proximity_matrix.loc[leaves_right[j], leaves_left[i]]
-
-                        # distances.append(max(ij_dist * weight_ij, j_dist * weight_ji))
-                        distances.append(max(wij_dist, wji_dist))
-
-                    for ol in range(len(other_leaves)):
-                        wij_dist = weighted_proximity_matrix.loc[leaves_left[i], other_leaves[ol]]
-                        wji_dist = weighted_proximity_matrix.loc[other_leaves[ol], leaves_left[i]]
-
-                        # distances.append(max(ij_dist * weight_ij, j_dist * weight_ji))
-                        distance_external.append(max(wij_dist, wji_dist))
-
-                min_distance = max(distances) if distances else 0.0
-
-                row["Min_Dist"] = min_distance
-                row["Min_Shared"] = max(distance_external) if distance_external else 0.0
-                ### Normalize min distance to be between 0 and 1
-                row["Min_Pairwise_Dist"] = min_distance if min_distance < 1 else 1 / min_distance
-
-                return row
-
-            self.all_node_stats = self.all_node_stats[self.all_node_stats["Node"].isin(self.all_nodes)]
-            self.all_node_stats = self.all_node_stats.apply(lambda row: new_min_distance(row), axis=1)
-            internal_nodes = self.all_node_stats[~self.all_node_stats["Node"].isin(self.leaves)]
-
-            if internal_nodes.empty is True:
-                self.all_node_stats["Z_min_dist"] = 0
-                self.all_node_stats["Z_Min_Shared"] = 0
+            all_internal = set(left) | set(right)
+            other_keys = [l for l in index_arr if l not in all_internal]
+            if other_keys:
+                other_pos = [index_to_pos[l] for l in other_keys]
+                sub_ab = wp_values[np.ix_(all_pos, other_pos)]
+                ext_kept = float(sub_ab.min())
             else:
-                self.all_node_stats["Z_min_dist"] = (
-                    self.all_node_stats["Min_Pairwise_Dist"] - internal_nodes["Min_Pairwise_Dist"].mean()
-                ) / (internal_nodes["Min_Pairwise_Dist"].std() if internal_nodes["Min_Pairwise_Dist"].std() > 0 else 1)
-                self.all_node_stats["Z_Min_Shared"] = (
-                    self.all_node_stats["Min_Shared"] - internal_nodes["Min_Shared"].mean()
-                ) / (internal_nodes["Min_Shared"].std() if internal_nodes["Min_Shared"].std() > 0 else 1)
+                ext_kept = 0.0
+
+            return {
+                "Min_Dist": min_dist,
+                "Min_Shared": ext_kept,
+                "Min_Pairwise_Dist": min_dist if min_dist < 1 else 1.0 / max(min_dist, 1e-10),
+            }
+
+        self.all_node_stats = self.all_node_stats[self.all_node_stats["Node"].isin(self.all_nodes)]
+        node_stats_list = []
+        for node in self.all_node_stats["Node"]:
+            stats = calc_node_stats(node)
+            stats["Node"] = node
+            node_stats_list.append(stats)
+        stats_df = pd.DataFrame(node_stats_list)
+        self.all_node_stats = self.all_node_stats.merge(stats_df, on="Node", how="left")
+
+        internal_nodes = self.all_node_stats[~self.all_node_stats["Node"].isin(self.leaves)]
+        if internal_nodes.empty is True:
+            self.all_node_stats["Z_min_dist"] = 0
+            self.all_node_stats["Z_Min_Shared"] = 0
+        else:
+            self.all_node_stats["Z_min_dist"] = (
+                self.all_node_stats["Min_Pairwise_Dist"] - internal_nodes["Min_Pairwise_Dist"].mean()
+            ) / (internal_nodes["Min_Pairwise_Dist"].std() if internal_nodes["Min_Pairwise_Dist"].std() > 0 else 1)
+            self.all_node_stats["Z_Min_Shared"] = (
+                self.all_node_stats["Min_Shared"] - internal_nodes["Min_Shared"].mean()
+            ) / (internal_nodes["Min_Shared"].std() if internal_nodes["Min_Shared"].std() > 0 else 1)
 
     def determine_min_pairwise_dist(self, node: str) -> float:
         if node not in self.all_nodes:
@@ -480,8 +463,8 @@ class OverlapManager:
 
     def remove_leaf_and_ascendants(self, node: str):
         """
-        prevent dangling nodes.
-        remove node in the tree and all its ascendants if they become leaves.
+        Remove node and all its ascendants that become childless.
+        State (all_nodes, root_nodes, leaves) must be recomputed by the caller after all removals.
         """
         if node not in self.tree:
             return
@@ -489,16 +472,12 @@ class OverlapManager:
         parents = list(self.tree.predecessors(node))
         self.tree.remove_node(node)
         for parent in parents:
-            if self.tree.out_degree(parent) == 0:  # If parent has no other children
+            if parent in self.tree and self.tree.out_degree(parent) == 0:
                 self.remove_leaf_and_ascendants(parent)
-        self.all_nodes = list(self.tree.nodes())
-        self.root_nodes = [n for n, d in self.tree.in_degree() if d == 0]
-        self.leaves = [n for n, d in self.tree.out_degree() if d == 0]
 
     def prune_empty_nodes(self):
         """Remove nodes from the tree that have no coverage."""
         self.all_node_stats = self.all_node_stats.dropna()
-        # nodes_to_remove = [node for node in self.tree.nodes() if node not in self.all_node_stats['Node'].values]
         nodes_to_remove = []
 
         existing_leaves = self.m_stats_matrix[self.m_stats_matrix["coverage"] > 0.0].index.tolist()
@@ -591,7 +570,6 @@ class OverlapManager:
         try:
             import matplotlib.pyplot as plt
             import plotly.graph_objects as go
-            from plotly.subplots import make_subplots
 
             color_list = plt.get_cmap("tab20").colors
             all_nodes_stats = self.all_node_stats.set_index("Node").to_dict("index")
@@ -672,8 +650,6 @@ class OverlapManager:
 
             color_list = plt.get_cmap("tab20").colors
 
-            import matplotlib.pyplot as plt
-
             node_colors = []
             all_nodes_stats = self.all_node_stats.set_index("Node")
             _ = self.selected_nodes_matrix(threshold)
@@ -724,7 +700,6 @@ class OverlapManager:
         try:
             import matplotlib.pyplot as plt
             import plotly.graph_objects as go
-            from plotly.subplots import make_subplots
 
             color_list = plt.get_cmap("tab20").colors
 
@@ -804,12 +779,6 @@ class OverlapManager:
             return None
 
     def check_data_available(self):
-        # if os.path.exists(os.path.join(self.output_dir, "all_node_statistics.tsv")) is False:
-        #    return False
-
-        # if os.path.exists(os.path.join(self.output_dir, "nj_tree_edges.txt")) is False:
-        #    return False
-
         if os.path.exists(self.distance_matrix_filepath) is False:
             return False
         return True
@@ -822,7 +791,9 @@ class OverlapManager:
             return False
         return node_data["Min_Pairwise_Dist"].values[0] >= threshold and node_data["Min_Shared"].values[0] <= threshold
 
-    def traverse_graph_recursive(self, node, threshold=0.5, nodes_return=[]) -> list[str]:
+    def traverse_graph_recursive(self, node, threshold=0.5, nodes_return=None) -> list[str]:
+        if nodes_return is None:
+            nodes_return = []
         if self.node_selector(node, threshold) == True:
             if node not in nodes_return:
                 nodes_return.append(node)
@@ -838,20 +809,21 @@ class OverlapManager:
         return nodes_return
 
     def get_node_leaves(self, node):
-
-        descendants = nx.descendants(self.tree, node)
-        leaves = [n for n in descendants if self.tree.out_degree(n) == 0]
-        if self.tree.out_degree(node) == 0:
-            leaves.append(node)
-        return leaves
+        return self.node_leaves_cache.get(node, [])
 
     def get_leaves_parted(self, node):
         if self.tree.out_degree(node) == 0:
-            return [node]
-        leaves = []
-        for child in self.tree.successors(node):
-            leaves.append(self.get_node_leaves(child))
-        return leaves
+            return [self.node_leaves_cache.get(node, [node])]
+        return [self.node_leaves_cache.get(child, []) for child in self.tree.successors(node)]
+
+    def _rebuild_node_leaves_cache(self):
+        self.node_leaves_cache = {}
+        for node in self.tree.nodes():
+            descendants = nx.descendants(self.tree, node)
+            leaves = [n for n in descendants if self.tree.out_degree(n) == 0]
+            if self.tree.out_degree(node) == 0:
+                leaves.append(node)
+            self.node_leaves_cache[node] = leaves
 
     def selected_nodes_matrix(self, threshold=0.5):
         self.cluster_map = {}

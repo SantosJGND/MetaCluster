@@ -260,7 +260,7 @@ def process_dataset(
     if not overlap_manager.leaves:
         logger.warning(f"{dataset}: OverlapManager has no leaves, skipping")
         return None, None, None, None, None
-
+    print("merged")
     m_stats = get_m_stats_matrix(
         dataset,
         study_output_filepath,

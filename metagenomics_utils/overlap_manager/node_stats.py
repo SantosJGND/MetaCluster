@@ -231,9 +231,9 @@ def _resolve_assembly_classifications(matched, classification):
 
 def _merge_matched_stats(m_stats, matched):
     """Merge coverage stats with matched assemblies; keep only rows with a taxid."""
-    from metagenomics_utils.overlap_manager.manager import merge_to_matched
+    from metagenomics_utils.overlap_manager.manager import _merge_matched_vectorized
 
-    m_stats = m_stats.apply(merge_to_matched, axis=1, matched=matched)
+    m_stats = _merge_matched_vectorized(m_stats, matched)
     m_stats = m_stats[m_stats["taxid"].notna()]
     m_stats.drop(columns=["file"], inplace=True)
     return m_stats
@@ -250,12 +250,14 @@ def _compute_best_matches(m_stats, input_taxids, ncbi_wrapper, overlap_manager, 
         ),
         axis=1,
     )
+    print("updated")
 
     m_stats["leaf"] = m_stats["assid"].apply(lambda x: match_leaf(x, overlap_manager.leaves))
 
     m_stats = merge_by_assembly_ID(m_stats)
     m_stats = m_stats.drop_duplicates(subset=["assid"])
     m_stats = dataframe_update_with_lineage(m_stats, ncbi_wrapper)
+    print("updated lineage")
 
     # mark one best match per group
     ncbi_tools = NCBITaxonomistWrapper()
@@ -508,7 +510,7 @@ def compute_node_purity(overlap_manager, m_stats_stats_matrix) -> pd.DataFrame:
     all_node_stats["leaf"] = all_node_stats["Node"].apply(lambda x: overlap_manager.get_node_leaves(x))
     all_node_stats = all_node_stats.explode("leaf")
     m_stats_stats_matrix["leaf"] = m_stats_stats_matrix.apply(
-        lambda row: overlap_manager.get_leaf_from_assid(row["assid"]), axis=1
+        lambda row: overlap_manager.get_leaf(row), axis=1
     )
     all_node_stats = all_node_stats.merge(m_stats_stats_matrix[["leaf", "best_match_taxid"]], on="leaf", how="left")
 
