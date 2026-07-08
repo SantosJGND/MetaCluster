@@ -428,8 +428,14 @@ class OverlapManager:
             stats = calc_node_stats(node)
             stats["Node"] = node
             node_stats_list.append(stats)
-        stats_df = pd.DataFrame(node_stats_list)
-        self.all_node_stats = self.all_node_stats.merge(stats_df, on="Node", how="left")
+
+        if not node_stats_list:
+            self.all_node_stats["Min_Pairwise_Dist"] = 0
+            self.all_node_stats["Min_Shared"] = 0
+            self.all_node_stats["Min_Dist"] = 0
+        else:
+            stats_df = pd.DataFrame(node_stats_list)
+            self.all_node_stats = self.all_node_stats.merge(stats_df, on="Node", how="left")
 
         internal_nodes = self.all_node_stats[~self.all_node_stats["Node"].isin(self.leaves)]
         if internal_nodes.empty is True:

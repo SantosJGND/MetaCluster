@@ -29,6 +29,7 @@ import pandas as pd
 
 warnings.filterwarnings("ignore")
 
+import os
 import sys
 import time
 from copy import deepcopy
@@ -75,6 +76,12 @@ def get_args():
         "cache/recall_results_cache.parquet",
         help="Path to recall results cache parquet file",
     )
+    parser.add_argument(
+        "--study_output_filepath",
+        type=str,
+        default=None,
+        help="Path to study output directory (enables N-taxid feature augmentation)",
+    )
     return parser.parse_args()
 
 
@@ -114,6 +121,20 @@ def model_file_safe(name):
     return name.replace(" ", "_").replace("(", "").replace(")", "")
 
 
+def _load_n_taxid_for_dataset(data_set_name, study_output_filepath):
+    """Load number of unique input taxids for a single dataset."""
+    input_path = os.path.join(
+        str(study_output_filepath), data_set_name, "input", f"{data_set_name}.tsv"
+    )
+    if not os.path.exists(input_path):
+        return None
+    try:
+        input_df = pd.read_csv(input_path, sep="\t")
+        return int(input_df["taxid"].nunique())
+    except Exception:
+        return None
+
+
 SAVE_DIR.mkdir(parents=True, exist_ok=True)
 
 # ═══════════════════════════════════════════════════════════════
@@ -138,6 +159,26 @@ taxonomy_features = [col for col in features if col not in stats_features]
 
 n_features = len(features)
 print(f"Features ({n_features}): {len(stats_features)} stats + {len(taxonomy_features)} taxonomy")
+
+# ── N-taxid target loading ──
+N_TAXID_FEATURE = "n_taxids_pred"
+if _args.study_output_filepath is not None:
+    study_path = Path(_args.study_output_filepath)
+    dataset_names = training_data["data_set"].unique()
+    n_taxid_map = {}
+    for ds in dataset_names:
+        n_taxid_map[ds] = _load_n_taxid_for_dataset(ds, study_path)
+    n_taxid_series = training_data["data_set"].map(n_taxid_map)
+    n_missing = int(n_taxid_series.isna().sum())
+    if n_missing > 0:
+        fill_val = n_taxid_series.median()
+        n_taxid_series = n_taxid_series.fillna(fill_val)
+        print(f"  N-taxid: filled {n_missing} missing values with median ({fill_val:.0f})")
+    training_data["n_taxids_true"] = n_taxid_series.astype(float)
+    print(f"  N-taxid true: range [{n_taxid_series.min():.0f}–{n_taxid_series.max():.0f}], "
+          f"mean={n_taxid_series.mean():.1f}, median={n_taxid_series.median():.0f}")
+else:
+    print("  N-taxid: skipped (--study_output_filepath not provided)")
 
 # Filter out samples where last_best_match_relindex == 0 or 1
 # (these are degenerate / edge cases)
@@ -166,6 +207,43 @@ X_train_scaled = scaler.fit_transform(X_train)
 X_test_scaled = scaler.transform(X_test)
 
 print(f"Train: {X_train_scaled.shape[0]} samples, Test: {X_test_scaled.shape[0]} samples")
+
+# ── N-taxid predictor: train XGBoost regressor, augment features ──
+if _args.study_output_filepath is not None and "n_taxids_true" in training_data.columns:
+    y_n_taxid_train = training_data.loc[X_train.index, "n_taxids_true"].values.astype(float)
+    y_n_taxid_test = training_data.loc[X_test.index, "n_taxids_true"].values.astype(float)
+
+    y_n_train_log = np.log1p(y_n_taxid_train)
+    y_n_test_log = np.log1p(y_n_taxid_test)
+
+    n_taxid_model = XGBRegressor(
+        n_estimators=300, max_depth=6, learning_rate=0.1,
+        subsample=0.8, colsample_bytree=0.8,
+        random_state=random_state, verbosity=0,
+    )
+    n_taxid_model.fit(X_train_scaled, y_n_train_log)
+
+    pred_train = np.expm1(n_taxid_model.predict(X_train_scaled))
+    pred_test = np.expm1(n_taxid_model.predict(X_test_scaled))
+
+    ss_res = np.sum((y_n_taxid_test - pred_test) ** 2)
+    ss_tot = np.sum((y_n_taxid_test - np.mean(y_n_taxid_test)) ** 2)
+    test_r2 = 1 - ss_res / max(ss_tot, 1e-15)
+    test_mae = float(np.mean(np.abs(y_n_taxid_test - pred_test)))
+
+    X_train_scaled = np.column_stack([X_train_scaled, pred_train])
+    X_test_scaled = np.column_stack([X_test_scaled, pred_test])
+    features = features + [N_TAXID_FEATURE]
+
+    print("\n  N-taxid predictor (XGBoost, log1p):")
+    print(f"    Test  R\u00b2: {test_r2:.4f}, MAE: {test_mae:.2f}")
+    print(f"    Predicted n_taxids: train [{pred_train.min():.1f}\u2013{pred_train.max():.1f}], "
+          f"test [{pred_test.min():.1f}\u2013{pred_test.max():.1f}]")
+    print(f"    True    n_taxids: train [{y_n_taxid_train.min():.0f}\u2013{y_n_taxid_train.max():.0f}], "
+          f"test [{y_n_taxid_test.min():.0f}\u2013{y_n_taxid_test.max():.0f}]")
+    print(f"  Features augmented to {X_train_scaled.shape[1]} (added '{N_TAXID_FEATURE}')")
+else:
+    print("  N-taxid feature augmentation: skipped")
 
 
 # ═══════════════════════════════════════════════════════════════
