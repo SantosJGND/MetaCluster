@@ -150,7 +150,12 @@ def get_m_stats_matrix(
         print(m_stats.head())
         print(m_stats["leaf"])
         print(f"  Dataset {data_set_name}: {len(m_stats)} assemblies after cross-hit and trash filtering")
+
+    
     m_stats = _finalize_m_stats(m_stats, filter_no_leaf)
+
+
+
     if log:
         print(m_stats.head())
         print(m_stats["leaf"])
@@ -192,6 +197,18 @@ def _load_m_stats_inputs(paths):
     else:
         m_stats = m_stats[["assembly_accession", "coverage", "covbases", "meanmapq", "numreads", "file"]]
         m_stats["error_rate"] = 0.0
+    
+    # drop file duplicatesm, keep first but : sum total_uniq_reads, mean coverage, mean error_rate
+    m_stats = m_stats.groupby("file").agg(
+        {
+            "coverage": "mean",
+            "covbases": "mean",
+            "meanmapq": "mean",
+            "numreads": "sum",
+            "error_rate": "mean",
+            "assembly_accession": "first",
+        }
+    ).reset_index()
 
     return input_df, matched, m_stats, classification
 

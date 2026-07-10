@@ -188,6 +188,7 @@ class DatasetProcessor:
         result.input_df = result.input_df.apply(match_taxid, axis=1)
 
         result.output_raw = len(overlap_manager.original_m_stats_matrix)
+        result.output_taxid_count = int(len(m_stats["taxid"].dropna().unique()))
         result.output_cov_filtered = int(len(m_stats[m_stats["coverage"] > 0]))
 
         cross_hit_mask = m_stats["is_crosshit"] == True
@@ -510,7 +511,7 @@ class DatasetProcessor:
             return result
 
         m_stats = get_m_stats_matrix(
-            data_set_name, self.config.study_output_filepath, self.ncbi, overlap_manager, filter_no_leaf=True
+            data_set_name, self.config.study_output_filepath, self.ncbi, overlap_manager, filter_no_leaf=False
         )
 
         try:

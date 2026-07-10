@@ -289,11 +289,13 @@ def process_dataset(
     per_classifier_records = compute_per_classifier_recall(m_stats, classifier_map, input_taxids)
 
     raw_size = len(m_stats)
+    raw_taxids = len(m_stats["taxid"].dropna().unique())
 
     per_dataset = {
         "data_set": dataset,
         "input_taxid_count": len(input_taxids),
         "output_raw": raw_size,
+        "output_taxid_count": raw_taxids,
         "tp_count": tp_count,
         "cross_hit_count": cross_hit_count,
         "spurious_count": spurious_count,
@@ -762,7 +764,7 @@ def plot_relindex_distribution(df: pd.DataFrame, output_dir: str):
 
 
 def plot_dataset_size_distribution(df: pd.DataFrame, output_dir: str):
-    data = df["output_raw"].dropna()
+    data = df["output_taxid_count"].dropna()
     if data.empty:
         return
     fig, ax = plt.subplots(figsize=(10, 6))
@@ -819,11 +821,11 @@ def plot_recall_comparison(classifier_df: pd.DataFrame, per_dataset_df: pd.DataF
 
 
 def plot_global_precision_histogram(per_dataset_df: pd.DataFrame, output_dir: str):
-    if "tp_count" not in per_dataset_df.columns or "output_raw" not in per_dataset_df.columns:
+    if "tp_count" not in per_dataset_df.columns or "output_taxid_count" not in per_dataset_df.columns:
         return
     df = per_dataset_df.copy()
-    df["precision_strict"] = df["tp_count"] / df["output_raw"].clip(lower=1)
-    df["precision_approximate"] = (df["tp_count"] + df["cross_hit_count"]) / df["output_raw"].clip(lower=1)
+    df["precision_strict"] = df["tp_count"] / df["output_taxid_count"].clip(lower=1)
+    df["precision_approximate"] = (df["tp_count"] + df["cross_hit_count"]) / df["output_taxid_count"].clip(lower=1)
 
     fig, ax = plt.subplots(figsize=(10, 6))
     sns.histplot(

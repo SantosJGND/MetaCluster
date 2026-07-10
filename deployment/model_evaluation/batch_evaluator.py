@@ -205,6 +205,7 @@ class BatchEvaluator:
                     "input_read_counts": r.input_read_counts,
                     "reads_simulated_per_class": r.reads_simulated_per_class,
                     "output_raw": r.output_raw,
+                    "output_taxid_count": r.output_taxid_count,
                     "output_cov_filtered": r.output_cov_filtered,
                     "predicted_clades_pre": r.predicted_clades_pre,
                     "predicted_clades_post": r.predicted_clades_post,
@@ -317,6 +318,8 @@ class BatchEvaluator:
         agent_path = os.path.join(output_dir, "evaluation_results_agent.json")
         result.write_agent_output(agent_path)
         logger.info(f"Saved agent-parseable JSON to {agent_path}")
+
+        self.save_summary_statistics(result, output_dir)
 
         if save_tsv:
             result.save_tsv(output_dir)

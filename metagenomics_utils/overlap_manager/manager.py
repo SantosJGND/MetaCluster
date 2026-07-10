@@ -86,7 +86,7 @@ def _merge_matched_vectorized(m_stats: pd.DataFrame, matched: pd.DataFrame) -> p
     result["description"] = result["description"].astype(object).where(result["description"].notna(), None)
     result["total_uniq_reads"] = result["total_uniq_reads"].fillna(0).astype(int)
 
-    result.drop(columns=["_matched_acc", "assembly_accession_r"], inplace=True, errors="ignore")
+    result.drop(columns=["_matched_acc", "assembly_accession"], inplace=True, errors="ignore")
 
     return result
 

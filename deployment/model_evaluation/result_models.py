@@ -106,6 +106,7 @@ class DatasetResult:
     sample: str = ""
     input_taxid_count: int = 0
     output_raw: int = 0
+    output_taxid_count: int = 0
     output_cov_filtered: int = 0
     predicted_clades_pre: int = 0
     predicted_clades_post: int = 0
@@ -131,6 +132,7 @@ class DatasetResult:
             "input_read_counts": self.input_read_counts,
             "reads_simulated_per_class": self.reads_simulated_per_class,
             "output_raw": self.output_raw,
+            "output_taxid_count": self.output_taxid_count,
             "output_cov_filtered": self.output_cov_filtered,
             "clades_fixed": self.predicted_clades_fixed,
             "predicted_clades_pre": self.predicted_clades_pre,
@@ -157,6 +159,7 @@ class DatasetResult:
             input_read_counts=data.get("input_read_counts"),
             reads_simulated_per_class=data.get("reads_simulated_per_class"),
             output_raw=data.get("output_raw", 0),
+            output_taxid_count=data.get("output_taxid_count", 0),
             output_cov_filtered=data.get("output_cov_filtered", 0),
             clade_precision_fixed=data.get("clade_precision_fixed", 0.0),
             clades_fixed=data.get("clades_fixed", 0),
