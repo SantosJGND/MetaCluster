@@ -7,7 +7,6 @@ from fastapi import FastAPI, HTTPException, Response
 from monitoring import log_prediction
 from registry import all_model_keys, cache_status, get_cached_model, invalidate_cache, load_and_cache
 from validation.schemas import (
-    ClusteringThresholdResult,
     CompositionStopTraversalRequest,
     CompositionStopTraversalResult,
     RecallCutoffFromTableRequest,
@@ -203,31 +202,10 @@ def predict_composition_stop_traversal(request: CompositionStopTraversalRequest,
     )
 
 
-@app.post("/predict_televir_clustering_threshold", response_model=ClusteringThresholdResult)
-def predict_televir_clustering_threshold(request: TelevirClusteringThresholdRequest, response: Response):
-    start = time.time()
-    model_type = "televir_clustering"
-    try:
-        model, version_info = get_cached_model(model_type)
-    except RuntimeError as e:
-        raise HTTPException(status_code=503, detail=str(e))
-
-    X = request.to_array(feature_names=getattr(model, "feature_names_", None))
-    prediction = model.predict([X])[0]
-    proba = model.predict_proba([X])[0]
-    confidence_score = float(max(proba))
-    latency_ms = (time.time() - start) * 1000
-    log_prediction(
-        model_version=f"{registry_name(model_type)} v{version_info.get('version', '?')}",
-        prediction=float(prediction),
-        latency_ms=latency_ms,
-    )
-
-    response.headers["X-Model-Version"] = str(version_info.get("version", ""))
-    response.headers["X-Model-Stage"] = str(version_info.get("stage", ""))
-    return ClusteringThresholdResult(
-        is_cluster=bool(prediction),
-        confidence_score=confidence_score,
-        model_version=str(version_info.get("version")),
-        model_stage=version_info.get("stage"),
+@app.post("/predict_televir_clustering_threshold")
+def predict_televir_clustering_threshold(request: TelevirClusteringThresholdRequest):
+    raise HTTPException(
+        status_code=501,
+        detail="televir_clustering model is deprecated and no longer available. "
+               "The clustering_xgb_bundle.pkl model artifact has been removed.",
     )

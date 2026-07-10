@@ -3,89 +3,86 @@ Evaluator module for deployment benchmark.
 
 This module provides classes and functions for evaluating taxonomic
 classification models on metagenomics datasets.
+
+All sub-module imports are lazy to avoid pulling in heavy dependencies
+(e.g. BioPython) when only a subset of the module is needed — such as
+when unpickling model files that reference ``RecallFeatureTransformer``.
 """
 
-from .base import (
-    BaseEvaluator,
-    DataLoaderBase,
-    DatasetProcessorBase,
-    EvaluationMetadata,
-    ModelTrainerBase,
-    ProgressTracker,
-    TqdmProgressTracker,
-    VisualizationBase,
-)
-from .batch_evaluator import BatchEvaluator
-from .config import (
-    EvaluatorConfig,
-    LoggingConfig,
-    MLflowConfig,
-    ModelConfig,
-    TrainedModels,
-    VisualizationConfig,
-)
-from .data_loader import (
-    DataLoader,
-    establish_taxids_to_use,
-    expand_input_data,
-    get_dataset_folders,
-    load_taxid_plan,
-    output_parse,
-    process_clade_report,
-    retrieve_simulation_input,
-    split_train_test_folders,
-)
-from .dataset_processor import DatasetProcessor
-from .exceptions import (
-    ConfigurationError,
-    DataLoadError,
-    EvaluatorError,
-    ModelError,
-    OverlapManagerError,
-    PredictionError,
-    ResultsAggregationError,
-)
-from .features import (
-    RecallFeatureTransformer,
-)
-from .logging_config import (
-    JSONFormatter,
-    LogContext,
-    StructuredLogger,
-    get_logger,
-    setup_logging,
-)
-from .metrics import (
-    compute_clade_recall,
-    compute_cross_hit_stats,
-    compute_mstats_precision,
-    compute_purity,
-    compute_recall,
-    safe_divide,
-)
-from .models import (
-    CrossValidator,
-    MLflowTracker,
-    ModelEvaluator,
-    ModelRegistry,
-    ModelTrainer,
-    TrainingCrossHitAnalyzer,
-    train_and_evaluate,
-)
-from .result_models import (
-    BatchEvaluationResult,
-    CrossHitMetrics,
-    DatasetResult,
-    PrecisionMetrics,
-    RecallMetrics,
-    create_empty_result,
-)
-from .visualization import (
-    PlotlyVisualizer,
-    ReportGenerator,
-    ResultVisualizer,
-    generate_report,
-)
+
+_LazyImports = {
+    "BaseEvaluator": ".base",
+    "DataLoaderBase": ".base",
+    "DatasetProcessorBase": ".base",
+    "EvaluationMetadata": ".base",
+    "ModelTrainerBase": ".base",
+    "ProgressTracker": ".base",
+    "TqdmProgressTracker": ".base",
+    "VisualizationBase": ".base",
+    "BatchEvaluator": ".batch_evaluator",
+    "EvaluatorConfig": ".config",
+    "LoggingConfig": ".config",
+    "MLflowConfig": ".config",
+    "ModelConfig": ".config",
+    "TrainedModels": ".config",
+    "VisualizationConfig": ".config",
+    "DataLoader": ".data_loader",
+    "establish_taxids_to_use": ".data_loader",
+    "expand_input_data": ".data_loader",
+    "get_dataset_folders": ".data_loader",
+    "load_taxid_plan": ".data_loader",
+    "output_parse": ".data_loader",
+    "process_clade_report": ".data_loader",
+    "retrieve_simulation_input": ".data_loader",
+    "split_train_test_folders": ".data_loader",
+    "DatasetProcessor": ".dataset_processor",
+    "ConfigurationError": ".exceptions",
+    "DataLoadError": ".exceptions",
+    "EvaluatorError": ".exceptions",
+    "ModelError": ".exceptions",
+    "OverlapManagerError": ".exceptions",
+    "PredictionError": ".exceptions",
+    "ResultsAggregationError": ".exceptions",
+    "RecallFeatureTransformer": ".features",
+    "JSONFormatter": ".logging_config",
+    "LogContext": ".logging_config",
+    "StructuredLogger": ".logging_config",
+    "get_logger": ".logging_config",
+    "setup_logging": ".logging_config",
+    "compute_clade_recall": ".metrics",
+    "compute_cross_hit_stats": ".metrics",
+    "compute_mstats_precision": ".metrics",
+    "compute_purity": ".metrics",
+    "compute_recall": ".metrics",
+    "safe_divide": ".metrics",
+    "CrossValidator": ".models",
+    "MLflowTracker": ".models",
+    "ModelEvaluator": ".models",
+    "ModelRegistry": ".models",
+    "ModelTrainer": ".models",
+    "TrainingCrossHitAnalyzer": ".models",
+    "train_and_evaluate": ".models",
+    "BatchEvaluationResult": ".result_models",
+    "CrossHitMetrics": ".result_models",
+    "DatasetResult": ".result_models",
+    "PrecisionMetrics": ".result_models",
+    "RecallMetrics": ".result_models",
+    "create_empty_result": ".result_models",
+    "PlotlyVisualizer": ".visualization",
+    "ReportGenerator": ".visualization",
+    "ResultVisualizer": ".visualization",
+    "generate_report": ".visualization",
+}
+
+
+def __getattr__(name):
+    import importlib
+
+    mod_path = _LazyImports.get(name)
+    if mod_path is not None:
+        mod = importlib.import_module(mod_path, __name__)
+        return getattr(mod, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 __all__ = [
     # Config

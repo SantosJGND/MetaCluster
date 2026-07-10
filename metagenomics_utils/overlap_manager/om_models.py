@@ -216,7 +216,7 @@ def predict_recall_cutoff_vars(
 
     warnings.warn(
         "predict_recall_cutoff_vars is deprecated. "
-        "Use deployment.model_evaluation.features.RecallFeatureTransformer instead.",
+         "Use metagenomics_utils.overlap_manager.feature_transformer.RecallFeatureTransformer instead.",
         DeprecationWarning,
         stacklevel=2,
     )
@@ -586,7 +586,7 @@ class RecallModeller:
         self.X_test = None
         self.y_test = None
         self.model_interface = model_interface or InjectModellerInterface(model_type="xgb")
-        from deployment.model_evaluation.features import RecallFeatureTransformer
+        from metagenomics_utils.overlap_manager.feature_transformer import RecallFeatureTransformer
 
         self.transformer = feature_transformer or RecallFeatureTransformer(
             tax_level=tax_level,

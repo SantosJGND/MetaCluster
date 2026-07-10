@@ -7,16 +7,14 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-RUN rm -f \
-    metagenomics_utils/ncbi_tools.py \
-    metagenomics_utils/reference_utils.py \
-    metagenomics_utils/core.py \
-    metagenomics_utils/dataframe_utils.py
-
 RUN apt-get update && \
     apt-get install -y git && \
     rm -rf /var/lib/apt/lists/*
 
+RUN git clone --branch main https://github.com/SantosJGND/MetaCluster.git && \
+    cp -rf MetaCluster/deployment /app && \
+    cp -rf MetaCluster/metagenomics_utils /app && \
+    rm -rf MetaCluster
 
 ENV MLFLOW_TRACKING_URI=http://mlflow:5000
 ENV MLFLOW_EXPERIMENT=INSaFLU_ML_API

@@ -29,7 +29,7 @@ _cache_lock = threading.Lock()
 
 
 def all_model_keys() -> list:
-    """Return all concrete cache keys (televir + recall variants)."""
+    """Return all concrete cache keys (composition + recall variants)."""
     keys = list(PROJECT_MODELS)
     for variant in RECALL_MODEL_VARIANTS:
         keys.append(f"recall_{variant}")

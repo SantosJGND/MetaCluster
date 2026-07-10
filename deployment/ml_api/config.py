@@ -10,7 +10,7 @@ MLFLOW_EXPERIMENT = os.getenv("MLFLOW_EXPERIMENT", PROJECT_NAME)
 MLRUNS_DIR = os.getenv("MLRUNS_DIR", "./mlruns")
 FEATURES_DIR = os.path.join(DATA_DIR, "features")
 
-PROJECT_MODELS = ["composition", "televir_clustering"]
+PROJECT_MODELS = ["composition"]
 
 COMPOSITION_MODEL_FILE = "composition_xgb_bundle.pkl"
 
@@ -36,5 +36,4 @@ class ModelFile:
     project_files = {
         **{f"recall_{k}": v["file"] for k, v in RECALL_MODEL_VARIANTS.items()},
         "composition": COMPOSITION_MODEL_FILE,
-        "televir_clustering": "clustering_xgb_bundle.pkl",
     }

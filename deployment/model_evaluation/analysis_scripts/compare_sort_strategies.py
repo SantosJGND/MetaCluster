@@ -27,7 +27,7 @@ import pandas as pd
 
 from deployment.model_evaluation.config import EvaluatorConfig
 from deployment.model_evaluation.data_loader import DataLoader
-from deployment.model_evaluation.features import RecallFeatureTransformer
+from metagenomics_utils.overlap_manager.feature_transformer import RecallFeatureTransformer
 from deployment.model_evaluation.metrics import compute_recall
 
 logger = logging.getLogger(__name__)

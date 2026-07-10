@@ -15,7 +15,7 @@ import pandas as pd
 
 from deployment.model_evaluation.config import EvaluatorConfig
 from deployment.model_evaluation.data_loader import DataLoader
-from deployment.model_evaluation.features import RecallFeatureTransformer
+from metagenomics_utils.overlap_manager.feature_transformer import RecallFeatureTransformer
 from metagenomics_utils.overlap_manager.node_stats import (
     get_m_stats_matrix,
     get_subset_composition_counts,

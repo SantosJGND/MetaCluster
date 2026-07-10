@@ -12,7 +12,6 @@ FastAPI service serving ML models registered in MLflow for the INSaFLU platform.
 | `POST` | `/reload/{model_type}`                 | Reload a single model |
 | `POST` | `/predict_recall_cutoff_from_table`    | Recall cutoff prediction from raw table rows |
 | `POST` | `/predict_composition_stop_traversal`  | Stop-traversal prediction from node features |
-| `POST` | `/predict_televir_clustering_threshold` | TELEVIR clustering threshold prediction |
 
 ## Model types
 
@@ -22,7 +21,7 @@ FastAPI service serving ML models registered in MLflow for the INSaFLU platform.
 | `recall_xgb_direct` | Direct XGBoost recall | `DirectXGBRecallModeller` |
 | `recall_xgb_multi` | Multi-output XGBoost recall | `RecallModeller` |
 | `composition` | Stop-traversal classifier | `XGBCompositionModeller` (or `rf`, `gb`, `lr`, `xgb_optimized`) |
-| `televir_clustering` | Clustering threshold | `ClusteringPipeline` |
+
 
 ## Model serving
 
