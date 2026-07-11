@@ -59,13 +59,12 @@ def id_crosshit(
     if best_match.empty or len(best_hits) == 0:
         return row
 
-    if best_match[best_match.index.isin(best_hits["leaf"])].empty:
+    candidates = best_match[best_match.index.isin(best_hits["leaf"])]
+    if candidates.empty:
         return row
 
-    best_match_dist = best_match[best_match.index.isin(best_hits["leaf"])].min()
-    # index of all best matches
-    # best_match = best_match[best_match.index.isin(best_hits['leaf'])].idxmin()
-    best_match = best_match[best_match.index.isin(best_hits["leaf"])].idxmin()
+    best_match_dist = candidates.min()
+    best_match = candidates.idxmin()
 
     best_match_taxid = m_stats_stats_matrix[m_stats_stats_matrix["leaf"] == best_match]["best_match_taxid"].values
     if len(best_match_taxid) > 0:
@@ -99,12 +98,16 @@ def get_max_shared(row, overlap_manager, best_hits: pd.DataFrame):
 
 
 def dataframe_update_with_lineage(df: pd.DataFrame, ncbi_wrapper: NCBITaxonomistWrapper) -> pd.DataFrame:
-    df["order"] = df.apply(lambda row: ncbi_wrapper.get_level(row["taxid"], "order"), axis=1)
-    df["order"] = df["order"].fillna("unclassified")
-    df["family"] = df.apply(lambda row: ncbi_wrapper.get_level(row["taxid"], "family"), axis=1)
-    df["family"] = df["family"].fillna("unclassified")
-    df["genus"] = df.apply(lambda row: ncbi_wrapper.get_level(row["taxid"], "genus"), axis=1)
-    df["genus"] = df["genus"].fillna("unclassified")
+    def _resolve_levels(row):
+        return pd.Series({
+            "order": ncbi_wrapper.get_level(row["taxid"], "order"),
+            "family": ncbi_wrapper.get_level(row["taxid"], "family"),
+            "genus": ncbi_wrapper.get_level(row["taxid"], "genus"),
+        })
+
+    levels = df.apply(_resolve_levels, axis=1)
+    for col in ["order", "family", "genus"]:
+        df[col] = levels[col].fillna("unclassified")
     return df
 
 
@@ -154,8 +157,6 @@ def get_m_stats_matrix(
     
     m_stats = _finalize_m_stats(m_stats, filter_no_leaf)
 
-
-
     if log:
         print(m_stats.head())
         print(m_stats["leaf"])
@@ -182,7 +183,7 @@ def _get_m_stats_paths(data_set_name, study_output_filepath):
 
 def _validate_m_stats_paths(paths):
     """Return True when all required input files exist."""
-    return all(os.path.exists(paths[k]) for k in ("matched_assemblies", "merged_stats", "input"))
+    return all(os.path.exists(paths[k]) for k in ("matched_assemblies", "merged_stats", "input", "classification"))
 
 
 def _load_m_stats_inputs(paths):
@@ -201,11 +202,11 @@ def _load_m_stats_inputs(paths):
     # drop file duplicatesm, keep first but : sum total_uniq_reads, mean coverage, mean error_rate
     m_stats = m_stats.groupby("file").agg(
         {
-            "coverage": "mean",
-            "covbases": "mean",
-            "meanmapq": "mean",
+            "coverage": "max",
+            "covbases": "sum",
+            "meanmapq": "max",
             "numreads": "sum",
-            "error_rate": "mean",
+            "error_rate": "max",
             "assembly_accession": "first",
         }
     ).reset_index()
@@ -267,17 +268,14 @@ def _compute_best_matches(m_stats, input_taxids, ncbi_wrapper, overlap_manager, 
         ),
         axis=1,
     )
-    print("updated")
 
     m_stats["leaf"] = m_stats["assid"].apply(lambda x: match_leaf(x, overlap_manager.leaves))
 
     m_stats = merge_by_assembly_ID(m_stats)
     m_stats = m_stats.drop_duplicates(subset=["assid"])
     m_stats = dataframe_update_with_lineage(m_stats, ncbi_wrapper)
-    print("updated lineage")
 
     # mark one best match per group
-    ncbi_tools = NCBITaxonomistWrapper()
     groups = []
     m_stats["best_match_is_best"] = False
     for _, group in m_stats.groupby("best_match_taxid"):
@@ -288,7 +286,7 @@ def _compute_best_matches(m_stats, input_taxids, ncbi_wrapper, overlap_manager, 
         for ix, row in group.iterrows():
             if row["coverage"] == 0.0:
                 continue
-            if ncbi_tools.level_is_below(row["best_match_level"], NCBITaxonomistWrapper.TAX_SPECIES):
+            if ncbi_wrapper.level_is_below(row["best_match_level"], NCBITaxonomistWrapper.TAX_SPECIES):
                 continue
             if not found:
                 group.at[ix, "best_match_is_best"] = True
@@ -314,7 +312,7 @@ def _flag_cross_hits(m_stats, overlap_manager, ncbi_wrapper, cross_hit_threshold
         best_hits=best_hits,
         cross_hit_threshold=cross_hit_threshold,
     )
-    m_stats["max_shared"] = 1.0
+    m_stats["max_shared"] = 0.0
     m_stats = m_stats.apply(get_max_shared, axis=1, overlap_manager=overlap_manager, best_hits=best_hits)
     return m_stats
 
@@ -328,12 +326,10 @@ def _finalize_m_stats(m_stats, filter_no_leaf):
         m_stats.set_index("assid", inplace=True)
     m_stats = m_stats.sort_values("total_uniq_reads", ascending=False)
 
-    def is_trash(row):
-        if pd.isna(row["best_match_taxid"]):
-            return True
-        return not row["best_match_is_best"] and not row["is_crosshit"]
-
-    m_stats["is_trash"] = m_stats.apply(is_trash, axis=1)
+    m_stats["is_trash"] = (
+        m_stats["best_match_taxid"].isna()
+        | (~m_stats["best_match_is_best"] & ~m_stats["is_crosshit"])
+    )
 
     # move total_uniq_reads to last column
     cols = m_stats.columns.tolist()

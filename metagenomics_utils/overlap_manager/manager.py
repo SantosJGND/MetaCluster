@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 
 import networkx as nx
 import numpy as np
@@ -50,8 +51,31 @@ def merge_to_matched(row, matched):
     return row
 
 
+NCBI_ACCESSION_RE = re.compile(r'(?:GC[AF]|NC|NZ|NT|NW|AC|AE|CP)_\d+\.\d+')
+
+def _extract_assid(index_value: str, known_assids: list[str] | None = None) -> str | None:
+    """Extract the assembly accession from a distance-matrix index.
+
+    Tries in order:
+    1. Match a standard NCBI assembly accession pattern (GCF_, GCA_, NC_, …).
+    2. If a list of known assids is given, build a regex union and match
+       any of them (longest match wins, same strategy as _merge_matched_vectorized).
+
+    Returns None when nothing matches.
+    """
+    m = NCBI_ACCESSION_RE.search(index_value)
+    if m:
+        return m.group(0)
+    if known_assids:
+        known_sorted = sorted(set(known_assids), key=len, reverse=True)
+        known_pat = re.compile("(" + "|".join(re.escape(a) for a in known_sorted) + ")")
+        m = known_pat.search(index_value)
+        if m:
+            return m.group(0)
+    return None
+
+
 def _merge_matched_vectorized(m_stats: pd.DataFrame, matched: pd.DataFrame) -> pd.DataFrame:
-    import re
  
     if matched.empty:
         result = m_stats.copy()
@@ -61,20 +85,16 @@ def _merge_matched_vectorized(m_stats: pd.DataFrame, matched: pd.DataFrame) -> p
         result["total_uniq_reads"] = 0
         return result
 
-    matched_sorted = matched.sort_values(
-        "assembly_accession",
-        key=lambda x: x.str.len(),
-        ascending=False,
-    )
-    pattern = "(" + "|".join(re.escape(a) for a in matched_sorted["assembly_accession"]) + ")"
+    known_assids = matched["assembly_accession"].unique().tolist()
     file_basenames = m_stats["file"].apply(os.path.basename)
-    matched_acc = file_basenames.str.extract(pattern, expand=False)
+    matched_acc = file_basenames.apply(lambda x: _extract_assid(x, known_assids))
+    matched_acc = matched_acc.where(matched_acc.isin(known_assids), None)
 
     result = m_stats.copy()
     result["_matched_acc"] = matched_acc
 
     result = result.merge(
-        matched_sorted[["assembly_accession", "taxid", "description", "total_uniq_reads"]],
+        matched[["assembly_accession", "taxid", "description", "total_uniq_reads"]],
         left_on="_matched_acc",
         right_on="assembly_accession",
         how="left",
@@ -86,7 +106,7 @@ def _merge_matched_vectorized(m_stats: pd.DataFrame, matched: pd.DataFrame) -> p
     result["description"] = result["description"].astype(object).where(result["description"].notna(), None)
     result["total_uniq_reads"] = result["total_uniq_reads"].fillna(0).astype(int)
 
-    result.drop(columns=["_matched_acc", "assembly_accession"], inplace=True, errors="ignore")
+    result.drop(columns=["_matched_acc"], inplace=True, errors="ignore")
 
     return result
 
@@ -103,7 +123,7 @@ class OverlapManager:
         self, output_dir: str, max_proportion: float = 1.0, max_taxids: int | None = None, skip_build: bool = False
     ):
         self.output_dir = output_dir
-        self.data_set_name = output_dir.split('/')[-2]
+        self.data_set_name = os.path.basename(os.path.dirname(output_dir))
         self.distance_matrix_filepath = os.path.join(output_dir, "distance_matrix.tsv")
         self.rundir = os.path.dirname(output_dir)
         self.max_proportion = max_proportion
@@ -157,7 +177,9 @@ class OverlapManager:
     @staticmethod
     def matrix_to_phylotriangle(distance_matrix: pd.DataFrame):
         """
-        Return tree from matrix
+        Convert a square distance DataFrame to a Bio.Phylo DistanceMatrix
+
+        (lower-triangular format required by Bio.Phylo.TreeConstruction).
         """
         distmat = distance_matrix.values.tolist()
         distmat = [x[: i + 1] for i, x in enumerate(distmat)]
@@ -167,18 +189,28 @@ class OverlapManager:
 
     def tree_from_distance_matrix(self, distance_matrix: pd.DataFrame):
         """
-        Return tree from distance matrix
+        Build a Bio.Phylo Tree from a distance matrix.
+
+        Uses NJ for >=3 taxa, UPGMA for 2 taxa, and returns a singleton
+        tree for a single taxon.
         """
         distmat = self.matrix_to_phylotriangle(distance_matrix)
         constructor = DistanceTreeConstructor()
+        n = distance_matrix.shape[0] if not distance_matrix.empty else 0
 
-        if distance_matrix.empty is True:
-            return Phylo.BaseTree.Tree(rooted="True")
+        if n == 0:
+            return Phylo.BaseTree.Tree(rooted=True)
 
-        if distance_matrix.shape[0] < 2:
-            tree = constructor.nj(distmat)
-        else:
+        if n == 1:
+            tree = Phylo.BaseTree.Tree(rooted=False)
+            tree.clade = Phylo.BaseTree.Clade(name=distance_matrix.index[0])
+            tree.ladderize()
+            return tree
+
+        if n == 2:
             tree = constructor.upgma(distmat)
+        else:
+            tree = constructor.nj(distmat)
 
         tree.rooted = False
         tree.ladderize()
@@ -344,11 +376,16 @@ class OverlapManager:
         Weight the distance matrix by the relative error rates of mappings against respective assemblies. 
 
         """
+        known_assids = self.m_stats_matrix["assid"].dropna().unique().tolist() if not self.m_stats_matrix.empty else None
         valid_idx = []
         err_vals = []
         for orig_idx in distance_matrix.index:
-            assid = orig_idx.strip("./").strip(self.data_set_name).strip(".fna.bam")
-            assid = "_".join(assid.split("_")[1:])
+            # Legacy parsing — kept for reference:
+            # assid = orig_idx.strip("./").strip(self.data_set_name).strip(".fna.bam")
+            # assid = "_".join(assid.split("_")[1:])
+            assid = _extract_assid(orig_idx, known_assids)
+            if assid is None:
+                continue
             match = self.m_stats_matrix[self.m_stats_matrix["assid"] == assid]
             if not match.empty:
                 valid_idx.append(orig_idx)
@@ -452,20 +489,15 @@ class OverlapManager:
     def determine_min_pairwise_dist(self, node: str) -> float:
         if node not in self.all_nodes:
             return float("nan")
-        if os.path.exists(self.distance_matrix_filepath):
-            distance_matrix = pd.read_csv(self.distance_matrix_filepath, sep="\t", index_col=0)
-            distance_matrix.index = distance_matrix.index.map(str)
-            distance_matrix.columns = distance_matrix.columns.map(str)
-            leaves = self.get_node_leaves(node)
-            if len(leaves) < 2:
-                return 0.0
-            sub_matrix = distance_matrix.loc[leaves, leaves]
-            tril_indices = np.tril_indices_from(sub_matrix, k=-1)
-            pairwise_distances = sub_matrix.values[tril_indices]
-            min_distance = pairwise_distances.min()
-            return min_distance
-        else:
+        if self.distance_mat.empty:
             return float("nan")
+        leaves = self.get_node_leaves(node)
+        if len(leaves) < 2:
+            return 0.0
+        sub_matrix = self.distance_mat.loc[leaves, leaves]
+        tril_indices = np.tril_indices_from(sub_matrix, k=-1)
+        pairwise_distances = sub_matrix.values[tril_indices]
+        return float(pairwise_distances.min())
 
     def remove_leaf_and_ascendants(self, node: str):
         """
@@ -492,6 +524,7 @@ class OverlapManager:
             self.remove_leaf_and_ascendants(node)
 
         self.all_nodes = list(self.tree.nodes())
+        self.all_node_stats = self.all_node_stats[self.all_node_stats["Node"].isin(self.all_nodes)]
         self.all_edges = pd.DataFrame(self.tree.edges(), columns=["node1", "node2"])
         if self.all_edges.empty:
             self.tree = nx.DiGraph()
@@ -648,6 +681,10 @@ class OverlapManager:
             return None
 
     def print_tree_with_clades(self, threshold=0.5):
+        """Draw tree with clades colored by cluster membership.
+
+        Side effect: populates ``self.cluster_map`` via ``selected_nodes_matrix()``.
+        """
         if self.tree.number_of_nodes() == 0:
             print("The tree is empty.")
             return None
@@ -797,20 +834,22 @@ class OverlapManager:
             return False
         return node_data["Min_Pairwise_Dist"].values[0] >= threshold and node_data["Min_Shared"].values[0] <= threshold
 
-    def traverse_graph_recursive(self, node, threshold=0.5, nodes_return=None) -> list[str]:
+    def traverse_graph_recursive(self, node, threshold=0.5, nodes_return=None, _seen=None) -> list[str]:
         if nodes_return is None:
             nodes_return = []
-        if self.node_selector(node, threshold) == True:
-            if node not in nodes_return:
+            _seen = set()
+        if self.node_selector(node, threshold):
+            if node not in _seen:
                 nodes_return.append(node)
+                _seen.add(node)
                 descendents = nx.descendants(self.tree, node)
                 for desc in descendents:
                     self.cluster_map[desc] = node
                 self.cluster_map[node] = node
         else:
             for neighbor in self.tree.neighbors(node):
-                if neighbor not in nodes_return:
-                    self.traverse_graph_recursive(neighbor, threshold, nodes_return)
+                if neighbor not in _seen:
+                    self.traverse_graph_recursive(neighbor, threshold, nodes_return, _seen)
 
         return nodes_return
 
@@ -824,12 +863,17 @@ class OverlapManager:
 
     def _rebuild_node_leaves_cache(self):
         self.node_leaves_cache = {}
-        for node in self.tree.nodes():
-            descendants = nx.descendants(self.tree, node)
-            leaves = [n for n in descendants if self.tree.out_degree(n) == 0]
+        def _dfs(node):
             if self.tree.out_degree(node) == 0:
-                leaves.append(node)
+                leaves = [node]
+            else:
+                leaves = []
+                for child in self.tree.successors(node):
+                    leaves.extend(_dfs(child))
             self.node_leaves_cache[node] = leaves
+            return leaves
+        for root in self.root_nodes:
+            _dfs(root)
 
     def selected_nodes_matrix(self, threshold=0.5):
         self.cluster_map = {}

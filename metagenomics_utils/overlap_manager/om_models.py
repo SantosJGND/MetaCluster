@@ -544,15 +544,15 @@ class InjectModellerInterface:
 
     def __init__(self, model_type: str = "xgb"):
 
-        self.trainning_func = self.model_map.get(model_type, multioutput_regressor)
+        self.training_func = self.model_map.get(model_type, multioutput_regressor)
 
-        if self.trainning_func is None:
+        if self.training_func is None:
             print(f"Model {model_type} not found. Defaulting to multioutput_regressor.")
             self.training_func = multioutput_regressor
 
     def train_model(self, X_train, Y_train, bayes_optimize: bool = True) -> MultiOutputRegressor:
 
-        model, _study = self.trainning_func(X_train, Y_train)
+        model, _study = self.training_func(X_train, Y_train)
         return model
 
 

@@ -735,7 +735,7 @@ class TestTraverseGraphRecursive:
         om.cluster_map = {}
         result = om.traverse_graph_recursive("root", 0, None)
         for node in result:
-            assert node in om.leaves or node["Min_Pairwise_Dist"] == 0
+            assert node in om.leaves or node in om.all_node_stats[om.all_node_stats["Min_Pairwise_Dist"] == 0]["Node"].values
 
     def test_cluster_map_populated(self, om_with_cluster_data):
         om = om_with_cluster_data

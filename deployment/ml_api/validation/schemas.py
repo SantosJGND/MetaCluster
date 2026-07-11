@@ -10,7 +10,7 @@ class RecallCutoffFromTableRow(BaseModel):
 class RecallCutoffFromTableRequest(BaseModel):
     model: str = "gp_clf"
     rows: list[RecallCutoffFromTableRow]
-    tax_level: str = "order"
+    tax_level: str = "family"
     target_recall: float | None = None
     confidence: float | None = None
 
