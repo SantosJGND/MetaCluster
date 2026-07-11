@@ -279,11 +279,26 @@ class OverlapManager:
             matched = pd.read_csv(matched_assemblies_file, sep="\t")
 
             matched = _resolve_assembly_classifications(matched, merged_classification_results)
-            self.original_m_stats_matrix = (
-                pd.read_csv(merged_stats_file, sep="\t").rename(columns={"#rname": "assembly_accession"})
-                if os.path.exists(merged_stats_file)
-                else pd.DataFrame()
-            )
+            if os.path.exists(merged_stats_file):
+                m = pd.read_csv(merged_stats_file, sep="\t").rename(columns={"#rname": "assembly_accession"})
+                if "error_rate" in m.columns:
+                    m = m[["assembly_accession", "coverage", "covbases", "meanmapq", "numreads", "error_rate", "file"]]
+                else:
+                    m = m[["assembly_accession", "coverage", "covbases", "meanmapq", "numreads", "file"]]
+                    m["error_rate"] = 0.0
+                m = m.groupby("file").agg(
+                    {
+                        "coverage": "max",
+                        "covbases": "sum",
+                        "meanmapq": "max",
+                        "numreads": "sum",
+                        "error_rate": "max",
+                        "assembly_accession": "first",
+                    }
+                ).reset_index()
+                self.original_m_stats_matrix = m
+            else:
+                self.original_m_stats_matrix = pd.DataFrame()
             self.m_stats_matrix = self.original_m_stats_matrix.copy()
 
             if not self.m_stats_matrix.empty and "total_uniq_reads" in matched.columns:

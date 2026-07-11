@@ -866,7 +866,7 @@ def plot_precision_per_classifier(classifier_hit_df: pd.DataFrame, per_dataset_d
 
     global_df = per_dataset_df.copy()
     global_df["classifier"] = "overall"
-    global_df["precision"] = global_df["tp_count"] / global_df["output_raw"].clip(lower=1)
+    global_df["precision"] = global_df["tp_count"] / global_df["output_taxid_count"].clip(lower=1)
     global_plot = global_df[["data_set", "classifier", "precision"]]
 
     combined = pd.concat([per_ds_clf[["data_set", "classifier", "precision"]], global_plot], ignore_index=True)
