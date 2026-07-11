@@ -1,0 +1,2 @@
+sample	taxid	reads	mutation_rate	nucleotide_id	accid	assembly_accession	path	fasta	assembly_file
+dataset_0020_sample	235	266865	0.2195	1948480193.0	NZ_CP066176.1	NZ_CP066176.1	/home/ddi/STUDIES/MetaCluster/Sims/assembly_store/235/235_NZ_CP066176.1_sequence.fasta.gz	235_NZ_CP066176.1_sequence.fasta.gz	/home/ddi/STUDIES/MetaCluster/Sims/assembly_store/235/235_NZ_CP066176.1_sequence.fasta.gz
