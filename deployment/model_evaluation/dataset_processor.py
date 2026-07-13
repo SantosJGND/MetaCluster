@@ -511,7 +511,7 @@ class DatasetProcessor:
             return result
 
         m_stats = get_m_stats_matrix(
-            data_set_name, self.config.study_output_filepath, self.ncbi, overlap_manager, filter_no_leaf=False
+            data_set_name, self.config.study_output_filepath, self.ncbi, overlap_manager, filter_no_leaf=True
         )
 
         try:

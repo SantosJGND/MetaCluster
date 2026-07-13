@@ -1246,6 +1246,7 @@ class GPCLFThreshold(RegressorMixin, BaseEstimator):
         self.scaler_ = StandardScaler()
         X_train_scaled = self.scaler_.fit_transform(X_train)
         X_val_scaled = self.scaler_.transform(X_val) if self.val_split > 0 else X_train_scaled
+        X_val_scaled[np.isnan(X_val_scaled)] = 0.0
 
         # ── Normalise recall curves per-sample ──
         recall_y_train = y_train[:, self.recall_indices_]
@@ -1323,6 +1324,9 @@ class GPCLFThreshold(RegressorMixin, BaseEstimator):
         """
         X = np.asarray(X, dtype=float)
         X_scaled = self.scaler_.transform(X)
+        
+        X_scaled[np.isnan(X_scaled)] = 0.0
+
         means, _ = self._predict_all(X_scaled)
         return means
 
@@ -1351,7 +1355,7 @@ class GPCLFThreshold(RegressorMixin, BaseEstimator):
         best_loss = float("inf")
         best_tau = None
         best_X = None
-
+        
         for tau in tau_values:
             probs = np.zeros((self.n_divisions, n_val))
             for d in range(self.n_divisions):
