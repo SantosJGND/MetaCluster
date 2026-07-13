@@ -547,6 +547,7 @@ class InjectModellerInterface:
     def __init__(self, model_type: str = "xgb"):
 
         self.training_func = self.model_map.get(model_type, multioutput_regressor)
+        self.model_type = model_type
 
         if self.training_func is None:
             print(f"Model {model_type} not found. Defaulting to multioutput_regressor.")
