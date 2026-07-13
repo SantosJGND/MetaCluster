@@ -2400,9 +2400,9 @@ class XGBCompositionModeller(BaseCompositionModeller):
 
     def __init__(
         self, n_estimators=300, max_depth=6, learning_rate=0.1, subsample=0.8, colsample_bytree=0.8, random_state=42,
-        tax_level="order",
+        tax_level="order", description: str | None = None
     ):
-        super().__init__(tax_level=tax_level)
+        super().__init__(tax_level=tax_level, description=description)
         self.n_estimators = n_estimators
         self.max_depth = max_depth
         self.learning_rate = learning_rate
@@ -2440,8 +2440,8 @@ class OptunaXGBCompositionModeller(BaseCompositionModeller):
 
     model_save_filename = "composition_optuna_bundle.pkl"
 
-    def __init__(self, optuna_trials=50, random_state=42, tax_level="order"):
-        super().__init__(tax_level=tax_level)
+    def __init__(self, optuna_trials=50, random_state=42, tax_level="order", description: str | None = None):
+        super().__init__(tax_level=tax_level, description=description)
         self.optuna_trials = optuna_trials
         self.random_state = random_state
 
@@ -2465,7 +2465,7 @@ class RFCompositionModeller(BaseCompositionModeller):
 
     model_save_filename = "composition_rf_bundle.pkl"
 
-    def __init__(self, n_estimators=300, max_depth=12, min_samples_leaf=3, random_state=42, tax_level="order"):
+    def __init__(self, n_estimators=300, max_depth=12, min_samples_leaf=3, random_state=42, tax_level="order", description: str | None = None):
         super().__init__(tax_level=tax_level)
         self.n_estimators = n_estimators
         self.max_depth = max_depth
@@ -2499,8 +2499,8 @@ class GBCompositionModeller(BaseCompositionModeller):
 
     model_save_filename = "composition_gb_bundle.pkl"
 
-    def __init__(self, n_estimators=300, max_depth=5, learning_rate=0.1, subsample=0.8, random_state=42, tax_level="order"):
-        super().__init__(tax_level=tax_level)
+    def __init__(self, n_estimators=300, max_depth=5, learning_rate=0.1, subsample=0.8, random_state=42, tax_level="order", description: str | None = None):
+        super().__init__(tax_level=tax_level, description=description)
         self.n_estimators = n_estimators
         self.max_depth = max_depth
         self.learning_rate = learning_rate
@@ -2534,8 +2534,8 @@ class LRCompositionModeller(BaseCompositionModeller):
 
     model_save_filename = "composition_lr_bundle.pkl"
 
-    def __init__(self, C=1.0, max_iter=1000, random_state=42, tax_level="order"):
-        super().__init__(tax_level=tax_level)
+    def __init__(self, C=1.0, max_iter=1000, random_state=42, tax_level="order", description: str | None = None):
+        super().__init__(tax_level=tax_level, description=description)
         self.C = C
         self.max_iter = max_iter
         self.random_state = random_state
