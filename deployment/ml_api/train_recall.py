@@ -30,6 +30,8 @@ def train():
     parser.add_argument("--output-dir", default=None, help="Output directory (default: <study-dir>/models)")
     parser.add_argument("--data-set-divide", type=int, default=20, help="Number of recall divisions")
     parser.add_argument("--model", default="gp_clf", choices=list(MODEL_CLASSES), help="Model variant to train")
+    parser.add_argument("--tax-level", default="order", help="Taxonomic level used for training")
+    parser.add_argument("--description", default=None, help="Optional description for the trained model")
 
     args = parser.parse_args()
 
@@ -62,6 +64,8 @@ def train():
     cls = MODEL_CLASSES[args.model]
     modeller = cls(
         data_set_divide=args.data_set_divide,
+        tax_level=args.tax_level,
+        description=args.description,
     )
 
     print(f"Training {args.model} recall model ...")

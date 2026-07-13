@@ -68,6 +68,7 @@ class EvaluatorConfig(BaseModel):
     use_mlflow: bool = Field(default=True, description="Enable MLflow tracking")
     mlflow_uri: str | None = Field(default=None, description="MLflow tracking URI")
     use_cache: bool = Field(default=True, description="Use cached training data")
+    description: str = Field(default="", description="Optional description for trained models")
 
     @field_validator("tax_level")
     @classmethod
@@ -137,6 +138,7 @@ class EvaluatorConfig(BaseModel):
             use_mlflow=args.use_mlflow,
             mlflow_uri=args.mlflow_uri,
             use_cache=not args.no_cache,
+            description=getattr(args, "description", ""),
         )
 
     @classmethod

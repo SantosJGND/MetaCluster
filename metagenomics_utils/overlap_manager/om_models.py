@@ -21,6 +21,8 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from xgboost import XGBClassifier
 
+from datetime import datetime, timezone
+
 from metagenomics_utils.overlap_manager.node_stats import (
     get_composition_by_leaf,
     get_m_stats_matrix,
@@ -558,6 +560,7 @@ class InjectModellerInterface:
 
 class RecallModeller:
     model_save_filename = "recall_xgb_bundle.pkl"
+    model_category = "recall"
 
     def __getstate__(self):
         state = self.__dict__.copy()
@@ -579,13 +582,17 @@ class RecallModeller:
         tax_level: str = "order",
         feature_transformer=None,
         sort_strategy: str = "reads",
+        description: str | None = None,
     ):
         self.data_set_divide = data_set_divide
         self.tax_level = tax_level
         self.model: MultiOutputRegressor | None = None
         self.X_test = None
         self.y_test = None
+        self.date_trained: str | None = None
         self.model_interface = model_interface or InjectModellerInterface(model_type="xgb")
+        model_type = self.model_interface.model_type if self.model_interface else "xgb"
+        self.description = description or f"Multi-output recall model ({model_type})"
         from metagenomics_utils.overlap_manager.feature_transformer import RecallFeatureTransformer
 
         self.transformer = feature_transformer or RecallFeatureTransformer(
@@ -634,6 +641,7 @@ class RecallModeller:
 
         self.RecP_feature_cols = feat_cols
         self.RecP_target_cols = target_cols
+        self.date_trained = datetime.now(timezone.utc).isoformat()
 
         return self
 
@@ -645,10 +653,14 @@ class RecallModeller:
             return
         bundle = {
             "model_type": "xgb_multi",
+            "model_category": self.model_category,
+            "description": self.description,
+            "date_trained": self.date_trained,
             "model": self.model,
             "feature_names": self.RecP_feature_cols,
             "target_names": self.RecP_target_cols,
             "data_set_divide": self.data_set_divide,
+            "tax_level": self.tax_level,
             "transformer": self.transformer,
         }
         if hasattr(self, "target_recall"):
@@ -663,6 +675,9 @@ class RecallModeller:
                 self.RecP_feature_cols = bundle["feature_names"]
                 self.RecP_target_cols = bundle["target_names"]
                 self.data_set_divide = bundle.get("data_set_divide", self.data_set_divide)
+                self.tax_level = bundle.get("tax_level", self.tax_level)
+                self.description = bundle.get("description", self.description)
+                self.date_trained = bundle.get("date_trained", self.date_trained)
                 self.transformer = bundle["transformer"]
                 if "target_recall" in bundle:
                     self.target_recall = bundle["target_recall"]
@@ -800,12 +815,14 @@ class CutoffRecallModeller(RecallModeller):
         tax_level: str = "order",
         feature_transformer=None,
         sort_strategy: str = "reads",
+        description: str | None = None,
     ):
         super().__init__(
             data_set_divide=data_set_divide,
             tax_level=tax_level,
             feature_transformer=feature_transformer,
             sort_strategy=sort_strategy,
+            description=description or "Cutoff recall model (RandomForest)",
         )
         self.target_recall = target_recall
         self.model: RandomForestClassifier | None = None
@@ -862,6 +879,7 @@ class CutoffRecallModeller(RecallModeller):
         self.model = clf
         self.RecP_feature_cols = feat_cols
         self.RecP_target_cols = target_cols
+        self.date_trained = datetime.now(timezone.utc).isoformat()
         return self
 
     def predict_cutoff(self, X, target_recall=None, confidence=None):
@@ -894,10 +912,14 @@ class CutoffRecallModeller(RecallModeller):
             return
         bundle = {
             "model_type": "xgb_direct",
+            "model_category": self.model_category,
+            "description": self.description,
+            "date_trained": self.date_trained,
             "model": self.model,
             "feature_names": self.RecP_feature_cols,
             "target_recall": self.target_recall,
             "data_set_divide": self.data_set_divide,
+            "tax_level": self.tax_level,
             "transformer": self.transformer,
         }
         joblib.dump(bundle, os.path.join(output_directory, self.model_save_filename))
@@ -910,6 +932,9 @@ class CutoffRecallModeller(RecallModeller):
                 self.RecP_feature_cols = bundle["feature_names"]
                 self.target_recall = bundle["target_recall"]
                 self.data_set_divide = bundle["data_set_divide"]
+                self.tax_level = bundle.get("tax_level", self.tax_level)
+                self.description = bundle.get("description", self.description)
+                self.date_trained = bundle.get("date_trained", self.date_trained)
                 self.transformer = bundle["transformer"]
             else:
                 self.model = bundle
@@ -956,12 +981,14 @@ class DirectXGBRecallModeller(RecallModeller):
         tax_level: str = "order",
         feature_transformer=None,
         sort_strategy: str = "reads",
+        description: str | None = None,
     ):
         super().__init__(
             data_set_divide=data_set_divide,
             tax_level=tax_level,
             feature_transformer=feature_transformer,
             sort_strategy=sort_strategy,
+            description=description or "Direct XGBoost recall model",
         )
         self.target_recall = target_recall
         self.model: RegressorMixin | None = None
@@ -1022,6 +1049,7 @@ class DirectXGBRecallModeller(RecallModeller):
         self.model = reg
         self.RecP_feature_cols = feat_cols
         self.RecP_target_cols = target_cols
+        self.date_trained = datetime.now(timezone.utc).isoformat()
         return self
 
     def predict_cutoff(self, X, target_recall=None, confidence=None):
@@ -1035,10 +1063,14 @@ class DirectXGBRecallModeller(RecallModeller):
             return
         bundle = {
             "model_type": "direct_xgb",
+            "model_category": self.model_category,
+            "description": self.description,
+            "date_trained": self.date_trained,
             "model": self.model,
             "feature_names": self.RecP_feature_cols,
             "target_recall": self.target_recall,
             "data_set_divide": self.data_set_divide,
+            "tax_level": self.tax_level,
             "transformer": self.transformer,
         }
         joblib.dump(bundle, os.path.join(output_directory, self.model_save_filename))
@@ -1051,6 +1083,9 @@ class DirectXGBRecallModeller(RecallModeller):
                 self.RecP_feature_cols = bundle["feature_names"]
                 self.target_recall = bundle["target_recall"]
                 self.data_set_divide = bundle["data_set_divide"]
+                self.tax_level = bundle.get("tax_level", self.tax_level)
+                self.description = bundle.get("description", self.description)
+                self.date_trained = bundle.get("date_trained", self.date_trained)
                 self.fractions = np.arange(1, self.data_set_divide + 1) / self.data_set_divide
                 self.transformer = bundle["transformer"]
             else:
@@ -1436,6 +1471,7 @@ class GPCLFRecallModeller(RecallModeller):
         tax_level="order",
         feature_transformer=None,
         sort_strategy="reads",
+        description: str | None = None,
     ):
         super().__init__(
             data_set_divide=data_set_divide,
@@ -1443,6 +1479,7 @@ class GPCLFRecallModeller(RecallModeller):
             tax_level=tax_level,
             feature_transformer=feature_transformer,
             sort_strategy=sort_strategy,
+            description=description or "GP+CLF recall model",
         )
         self._pipeline: GPCLFThreshold | None = None
         self.optimal_tau = None
@@ -1521,6 +1558,7 @@ class GPCLFRecallModeller(RecallModeller):
 
         self.RecP_feature_cols = feat_cols
         self.RecP_target_cols = target_cols
+        self.date_trained = datetime.now(timezone.utc).isoformat()
         return self
 
     def predict_cutoff(self, X, target_recall=None, confidence=None):
@@ -1544,10 +1582,14 @@ class GPCLFRecallModeller(RecallModeller):
         if self.pipeline is not None:
             bundle = {
                 "model_type": "gp_clf",
+                "model_category": self.model_category,
+                "description": self.description,
+                "date_trained": self.date_trained,
                 "pipeline": self.pipeline,
                 "feature_names": list(self.RecP_feature_cols),
                 "target_names": list(self.RecP_target_cols),
                 "data_set_divide": self.data_set_divide,
+                "tax_level": self.tax_level,
                 "optimal_tau": self.optimal_tau,
                 "optimal_X": self.optimal_X,
                 "optimal_loss": self.optimal_loss,
@@ -1563,6 +1605,9 @@ class GPCLFRecallModeller(RecallModeller):
                 self.RecP_feature_cols = bundle["feature_names"]
                 self.RecP_target_cols = bundle["target_names"]
                 self.data_set_divide = bundle["data_set_divide"]
+                self.tax_level = bundle.get("tax_level", self.tax_level)
+                self.description = bundle.get("description", self.description)
+                self.date_trained = bundle.get("date_trained", self.date_trained)
                 self.optimal_tau = bundle["optimal_tau"]
                 self.optimal_X = bundle["optimal_X"]
                 self.optimal_loss = bundle["optimal_loss"]
@@ -2100,8 +2145,12 @@ class BaseCompositionModeller(ABC):
     """
 
     model_save_filename: str = "composition_bundle.pkl"
+    model_category: str = "composition"
 
-    def __init__(self):
+    def __init__(self, tax_level: str = "order", description: str | None = None):
+        self.tax_level = tax_level
+        self.description = description or f"{type(self).__name__} composition model"
+        self.date_trained: str | None = None
         self.pipeline: BaseEstimator | Pipeline | None = None
         self.X_train = None
         self.X_test = None
@@ -2135,6 +2184,7 @@ class BaseCompositionModeller(ABC):
         self.y_test = y_test
         self._feature_names = list(X_train.columns) if hasattr(X_train, "columns") else None
         self.pipeline = self._build_pipeline(X_train, y_train)
+        self.date_trained = datetime.now(timezone.utc).isoformat()
         return self
 
     @property
@@ -2152,8 +2202,12 @@ class BaseCompositionModeller(ABC):
         if self.pipeline is not None:
             bundle = {
                 "model_type": type(self).__name__,
+                "model_category": self.model_category,
+                "description": self.description,
+                "date_trained": self.date_trained,
                 "pipeline": self.pipeline,
                 "feature_names": self._feature_names,
+                "tax_level": self.tax_level,
                 "X_train": self.X_train,
                 "X_test": self.X_test,
                 "y_train": self.y_train,
@@ -2169,6 +2223,9 @@ class BaseCompositionModeller(ABC):
             if isinstance(data, dict):
                 self.pipeline = data["pipeline"]
                 self._feature_names = data.get("feature_names")
+                self.tax_level = data.get("tax_level", self.tax_level)
+                self.description = data.get("description", self.description)
+                self.date_trained = data.get("date_trained", self.date_trained)
                 self.X_train = data.get("X_train")
                 self.X_test = data.get("X_test")
                 self.y_train = data.get("y_train")
@@ -2341,9 +2398,10 @@ class XGBCompositionModeller(BaseCompositionModeller):
     model_save_filename = "composition_xgb_bundle.pkl"
 
     def __init__(
-        self, n_estimators=300, max_depth=6, learning_rate=0.1, subsample=0.8, colsample_bytree=0.8, random_state=42
+        self, n_estimators=300, max_depth=6, learning_rate=0.1, subsample=0.8, colsample_bytree=0.8, random_state=42,
+        tax_level="order",
     ):
-        super().__init__()
+        super().__init__(tax_level=tax_level)
         self.n_estimators = n_estimators
         self.max_depth = max_depth
         self.learning_rate = learning_rate
@@ -2381,8 +2439,8 @@ class OptunaXGBCompositionModeller(BaseCompositionModeller):
 
     model_save_filename = "composition_optuna_bundle.pkl"
 
-    def __init__(self, optuna_trials=50, random_state=42):
-        super().__init__()
+    def __init__(self, optuna_trials=50, random_state=42, tax_level="order"):
+        super().__init__(tax_level=tax_level)
         self.optuna_trials = optuna_trials
         self.random_state = random_state
 
@@ -2406,8 +2464,8 @@ class RFCompositionModeller(BaseCompositionModeller):
 
     model_save_filename = "composition_rf_bundle.pkl"
 
-    def __init__(self, n_estimators=300, max_depth=12, min_samples_leaf=3, random_state=42):
-        super().__init__()
+    def __init__(self, n_estimators=300, max_depth=12, min_samples_leaf=3, random_state=42, tax_level="order"):
+        super().__init__(tax_level=tax_level)
         self.n_estimators = n_estimators
         self.max_depth = max_depth
         self.min_samples_leaf = min_samples_leaf
@@ -2440,8 +2498,8 @@ class GBCompositionModeller(BaseCompositionModeller):
 
     model_save_filename = "composition_gb_bundle.pkl"
 
-    def __init__(self, n_estimators=300, max_depth=5, learning_rate=0.1, subsample=0.8, random_state=42):
-        super().__init__()
+    def __init__(self, n_estimators=300, max_depth=5, learning_rate=0.1, subsample=0.8, random_state=42, tax_level="order"):
+        super().__init__(tax_level=tax_level)
         self.n_estimators = n_estimators
         self.max_depth = max_depth
         self.learning_rate = learning_rate
@@ -2475,8 +2533,8 @@ class LRCompositionModeller(BaseCompositionModeller):
 
     model_save_filename = "composition_lr_bundle.pkl"
 
-    def __init__(self, C=1.0, max_iter=1000, random_state=42):
-        super().__init__()
+    def __init__(self, C=1.0, max_iter=1000, random_state=42, tax_level="order"):
+        super().__init__(tax_level=tax_level)
         self.C = C
         self.max_iter = max_iter
         self.random_state = random_state
@@ -2543,8 +2601,11 @@ class LRCompositionModeller(BaseCompositionModeller):
 
 class CrossHitModeller:
     model_save_filename = "cross_hit_xgb_bundle.pkl"
+    model_category: str = "crosshit"
 
-    def __init__(self, prediction_trainning_results_df):
+    def __init__(self, prediction_trainning_results_df, description: str | None = None):
+        self.description = description or "Cross-hit XGBoost classifier"
+        self.date_trained: str | None = None
         self.prediction_trainning_results_df = prediction_trainning_results_df
         self.X = self.prediction_trainning_results_df.drop(columns=["leaf", "is_trash"])
         self.pred_stats_cols = ["coverage", "covbases", "meanmapq", "error_rate", "max_shared", "total_uniq_reads"]
@@ -2597,6 +2658,7 @@ class CrossHitModeller:
         X_train, X_test, y_train, y_test = self.prep_data()
         model = self.xgbc_model(X_train, y_train, **kwargs)
         self.model = model
+        self.date_trained = datetime.now(timezone.utc).isoformat()
         return model, X_test, y_test
 
     def train_model_bayes_optimized(self):
@@ -2637,6 +2699,7 @@ class CrossHitModeller:
 
         best_model.fit(X_train, y_train)
         self.model = best_model
+        self.date_trained = datetime.now(timezone.utc).isoformat()
         return best_model, X_test, y_test, study
 
     def save_model(self, output_directory: str):
@@ -2645,6 +2708,9 @@ class CrossHitModeller:
             joblib.dump(
                 {
                     "model": self.model,
+                    "model_category": self.model_category,
+                    "description": self.description,
+                    "date_trained": self.date_trained,
                     "scaler": self.scaler,
                     "pca": self.pca,
                 },
@@ -2659,6 +2725,8 @@ class CrossHitModeller:
             bundle = joblib.load(os.path.join(input_directory, self.model_save_filename))
             if isinstance(bundle, dict):
                 self.model = bundle["model"]
+                self.description = bundle.get("description", self.description)
+                self.date_trained = bundle.get("date_trained", self.date_trained)
                 self.scaler = bundle.get("scaler")
                 self.pca = bundle.get("pca")
             else:

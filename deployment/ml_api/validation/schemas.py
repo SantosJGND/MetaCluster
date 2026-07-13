@@ -79,6 +79,8 @@ class ClusteringThresholdResult(BaseModel):
 
 
 class CompositionStopTraversalRequest(BaseModel):
+    model: str = "xgb"
+    tax_level: str = "order"
     features: dict[str, float] = Field(
         ...,
         description="Feature dict — keys matching training column names, values are feature values at the node",

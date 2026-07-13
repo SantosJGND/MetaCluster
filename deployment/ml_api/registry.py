@@ -13,9 +13,7 @@ sys.path.append(str(_THIS_DIR.parent.parent))
 from config import (
     MLFLOW_EXPERIMENT,
     MLFLOW_TRACKING_URI,
-    PROJECT_MODELS,
-    RECALL_MODEL_VARIANTS,
-    ModelFile,
+    MODEL_TYPE_MAP,
     get_logger,
     registry_name,
 )
@@ -27,12 +25,63 @@ MODELS_DIR = Path(__file__).parent / "models"
 _model_cache: dict[str, dict] = {}
 _cache_lock = threading.Lock()
 
+_ALL_MODELS: dict[str, dict] = {}
+
+def discover_models():
+    """Scan models/ directory, read bundle metadata, build composite key map.
+
+    Each key is ``{tax_level}_{category}_{variant}`` (e.g. ``order_recall_xgb``).
+    """
+    discovered = {}
+    if not MODELS_DIR.is_dir():
+        logger.warning("Models directory does not exist: %s", MODELS_DIR)
+        return discovered
+
+    GENUS_ALIASES = {"genus", "g", "genera"}
+
+    for p in sorted(MODELS_DIR.iterdir()):
+        if p.suffix not in (".pkl",):
+            continue
+        try:
+            bundle = joblib.load(str(p))
+        except Exception as exc:
+            logger.warning("Could not load %s: %s", p.name, exc)
+            continue
+        if not isinstance(bundle, dict):
+            logger.warning("Skipping %s: not a dict bundle", p.name)
+            continue
+
+        category = bundle.get("model_category", "unknown")
+        tax_level = bundle.get("tax_level", "unknown")
+        model_type = bundle.get("model_type", p.stem)
+        description = bundle.get("description", "")
+
+        if tax_level in GENUS_ALIASES:
+            tax_level = "genus"
+
+        key = f"{tax_level}_{category}_{model_type}"
+        discovered[key] = {
+            "path": str(p),
+            "model_category": category,
+            "tax_level": tax_level,
+            "model_type": model_type,
+            "description": description,
+            "bundle": bundle,
+        }
+
+    _ALL_MODELS.clear()
+    _ALL_MODELS.update(discovered)
+    logger.info("Discovered %d models", len(discovered))
+    for k, v in discovered.items():
+        logger.debug("  %s — %s", k, v["description"])
+    return discovered
+
 
 def all_model_keys() -> list:
-    """Return all concrete cache keys (composition + recall variants)."""
-    keys = list(PROJECT_MODELS)
-    for variant in RECALL_MODEL_VARIANTS:
-        keys.append(f"recall_{variant}")
+    keys = list(_ALL_MODELS.keys())
+    if not keys:
+        discover_models()
+        keys = list(_ALL_MODELS.keys())
     return keys
 
 
@@ -50,15 +99,9 @@ def _mlflow_reachable(timeout=3):
 
 
 def _load_local_model(model_type):
-    filename = ModelFile.project_files.get(model_type)
-    if not filename:
-        raise RuntimeError(f"No local filename configured for model type '{model_type}'")
-    model_path = MODELS_DIR / filename
-    if not model_path.exists():
-        raise RuntimeError(f"Local model file not found: {model_path}")
-    model = joblib.load(str(model_path))
-    logger.info(f"Loaded local model '{model_type}' from {model_path}")
-    return model
+    if model_type in _ALL_MODELS:
+        return _ALL_MODELS[model_type]["bundle"]
+    raise RuntimeError(f"No local model found for '{model_type}' — run discover_models() first")
 
 
 def load_production_model(model_type):
@@ -112,6 +155,7 @@ def load_and_cache(model_type: str) -> dict:
     version_info = get_model_version(model_type)
     entry = {
         "model": model,
+        "type": MODEL_TYPE_MAP.get(model_type, "unknown"),
         "version": version_info.get("version"),
         "stage": version_info.get("stage"),
         "run_id": version_info.get("run_id"),
@@ -152,6 +196,7 @@ def cache_status() -> list[dict]:
     return [
         {
             "model_type": mt,
+            "type": e["type"],
             "version": e["version"],
             "stage": e["stage"],
             "loaded_seconds_ago": round(time.time() - e["loaded_at"], 1),

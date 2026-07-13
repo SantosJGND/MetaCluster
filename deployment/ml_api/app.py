@@ -2,10 +2,10 @@ import time
 
 import numpy as np
 import pandas as pd
-from config import RECALL_MODEL_VARIANTS, get_logger, registry_name
+from config import get_logger, registry_name
 from fastapi import FastAPI, HTTPException, Response
 from monitoring import log_prediction
-from registry import all_model_keys, cache_status, get_cached_model, invalidate_cache, load_and_cache
+from registry import all_model_keys, cache_status, discover_models, get_cached_model, invalidate_cache, load_and_cache
 from validation.schemas import (
     CompositionStopTraversalRequest,
     CompositionStopTraversalResult,
@@ -86,17 +86,19 @@ def _interpolate_recall_at_cutoff(cutoff, raw_recalls, n_divisions):
     return float(raw_recalls[-1])
 
 
-_RECALL_VARIANT_KEYS = {v: f"recall_{v}" for v in RECALL_MODEL_VARIANTS}
+_GENUS_ALIASES = {"genus", "g", "genera"}
+
+
+def _composite_key(tax_level: str, category: str, variant: str) -> str:
+    if tax_level in _GENUS_ALIASES:
+        tax_level = "genus"
+    return f"{tax_level}_{category}_{variant}"
 
 
 @app.post("/predict_recall_cutoff_from_table", response_model=RecallCutoffResult)
 def predict_recall_cutoff_from_table(request: RecallCutoffFromTableRequest, response: Response):
     start = time.time()
-    variant_key = _RECALL_VARIANT_KEYS.get(request.model)
-    if variant_key is None:
-        raise HTTPException(
-            422, detail=f"Unknown recall model '{request.model}'. Choose from: {list(_RECALL_VARIANT_KEYS)}"
-        )
+    variant_key = _composite_key(request.tax_level, "recall", request.model)
     try:
         bundle, version_info = get_cached_model(variant_key)
     except RuntimeError as e:
@@ -108,12 +110,19 @@ def predict_recall_cutoff_from_table(request: RecallCutoffFromTableRequest, resp
             503, detail=f"Model '{request.model}' has no transformer — not trained via the new pipeline"
         )
 
+    model_tax_level = bundle.get("tax_level") or getattr(transformer, "tax_level", None)
+    if model_tax_level and request.tax_level and model_tax_level != request.tax_level:
+        raise HTTPException(
+            422,
+            detail=f"Model trained at tax_level='{model_tax_level}', "
+                   f"but request specified tax_level='{request.tax_level}'",
+        )
+
     pipeline = bundle.get("pipeline") or bundle.get("model")
     if pipeline is None:
         raise HTTPException(503, detail=f"Model '{request.model}' has no pipeline")
 
     df = pd.DataFrame([r.model_dump() for r in request.rows])
-    df[request.tax_level] = request.tax_level
     features = transformer.transform(df)
     feat_cols = bundle.get("feature_names", transformer.get_feature_names_out())
     X = features[feat_cols]
@@ -158,8 +167,9 @@ def predict_recall_cutoff_from_table(request: RecallCutoffFromTableRequest, resp
 @app.post("/predict_composition_stop_traversal", response_model=CompositionStopTraversalResult)
 def predict_composition_stop_traversal(request: CompositionStopTraversalRequest, response: Response):
     start = time.time()
+    variant_key = _composite_key(request.tax_level, "composition", request.model)
     try:
-        bundle, version_info = get_cached_model("composition")
+        bundle, version_info = get_cached_model(variant_key)
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
 

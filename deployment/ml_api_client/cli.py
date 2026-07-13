@@ -42,10 +42,14 @@ def main():
 
     recall_p = sub.add_parser("predict-recall", help="Predict recall cutoff from raw table")
     recall_p.add_argument("--rows", required=True, help="CSV with taxid,total_uniq_reads[,best_match_is_best]")
-    recall_p.add_argument("--model", default="gp_clf", choices=["gp_clf", "xgb_direct", "xgb_multi"])
-    recall_p.add_argument("--tax-level", default="order")
-    recall_p.add_argument("--target-recall", type=float)
-    recall_p.add_argument("--confidence", type=float)
+    recall_p.add_argument("--model", default="gp_clf", choices=["gp_clf", "xgb_direct", "xgb_multi"],
+                          help="Recall model variant (default: gp_clf)")
+    recall_p.add_argument("--tax-level", default="order",
+                          help="Taxonomic level the model was trained on (default: order)")
+    recall_p.add_argument("--target-recall", type=float,
+                          help="Target recall threshold (0-1)")
+    recall_p.add_argument("--confidence", type=float,
+                          help="Confidence threshold for probability-guided cutoff (0-1)")
 
     clust_p = sub.add_parser("predict-clustering", help="Predict TELEVIR clustering threshold")
     clust_p.add_argument("--features", required=True, help="JSON file with clustering features")

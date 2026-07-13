@@ -290,19 +290,21 @@ class ModelTrainer:
         """Factory: create composition modeller based on config."""
         interface = self.config.composition_model_interface
         logger.info(f"Composition model interface: {interface}")
+        tax_level = self.config.tax_level
+        desc = self.config.description or None
         if interface == "xgb":
-            return XGBCompositionModeller()
+            return XGBCompositionModeller(tax_level=tax_level, description=desc)
         elif interface == "xgb_optimized":
-            return OptunaXGBCompositionModeller()
+            return OptunaXGBCompositionModeller(tax_level=tax_level, description=desc)
         elif interface == "rf":
-            return RFCompositionModeller()
+            return RFCompositionModeller(tax_level=tax_level, description=desc)
         elif interface == "gb":
-            return GBCompositionModeller()
+            return GBCompositionModeller(tax_level=tax_level, description=desc)
         elif interface == "lr":
-            return LRCompositionModeller()
+            return LRCompositionModeller(tax_level=tax_level, description=desc)
         else:
             logger.warning(f"Unknown composition model interface '{interface}', falling back to xgb")
-            return XGBCompositionModeller()
+            return XGBCompositionModeller(tax_level=tax_level, description=desc)
 
     def train_models(self, training_folders: list, force_refresh: bool = False) -> tuple[Any, Any]:
         logger.info(f"Starting model training with {len(training_folders)} datasets")
@@ -337,6 +339,8 @@ class ModelTrainer:
                 data_set_divide=self.config.data_set_divide,
                 model_interface=model_interface,
                 sort_strategy=self.config.recall_sort_strategy,
+                tax_level=self.config.tax_level,
+                description=self.config.description or None,
             )
             logger.info(
                 f"GP-CLF mode: using per-division GPs with CLF threshold, data_set_divide={self.config.data_set_divide}"
@@ -348,6 +352,8 @@ class ModelTrainer:
                 data_set_divide=self.config.data_set_divide,
                 target_recall=self.config.target_recall,
                 sort_strategy=self.config.recall_sort_strategy,
+                tax_level=self.config.tax_level,
+                description=self.config.description or None,
             )
         elif self.config.recall_model_interface == "direct_xgb":
             from metagenomics_utils.overlap_manager.om_models import DirectXGBRecallModeller
@@ -356,6 +362,8 @@ class ModelTrainer:
                 data_set_divide=self.config.data_set_divide,
                 target_recall=self.config.target_recall,
                 sort_strategy=self.config.recall_sort_strategy,
+                tax_level=self.config.tax_level,
+                description=self.config.description or None,
             )
             logger.info(
                 f"DirectXGB mode: direct fraction regression with XGBoost, data_set_divide={self.config.data_set_divide}"
@@ -366,12 +374,15 @@ class ModelTrainer:
                 data_set_divide=self.config.data_set_divide,
                 model_interface=model_interface,
                 sort_strategy=self.config.recall_sort_strategy,
+                tax_level=self.config.tax_level,
+                description=self.config.description or None,
             )
 
         self.composition_modeller = self._init_composition_modeller(training_df)
 
         self.crosshit_modeller = CrossHitModeller(
             prediction_trainning_results_df=prediction_df,
+            description=self.config.description or None,
         )
 
         logger.info("Training recall model...")

@@ -9,9 +9,9 @@ All outputs are written under `{analysis_output_filepath}` (set via `--analysis_
 ```
 {analysis_output_filepath}/
 ├── models/
-│   ├── recall_model.joblib
-│   ├── composition_model.joblib
-│   ├── crosshit_model.joblib
+│   ├── recall_xgb_bundle.pkl          (or variant: cutoff_recall_bundle.pkl, direct_xgb_bundle.pkl, recall_gp_clf_pipeline.pkl)
+│   ├── composition_xgb_bundle.pkl     (or variant: composition_{rf,gb,lr,optuna}_bundle.pkl)
+│   ├── cross_hit_xgb_bundle.pkl
 │   ├── taxids_to_use.parquet
 │   ├── recall_model_summary.png
 │   ├── recall_landscape.png           (gp_clf only)
@@ -70,19 +70,55 @@ All outputs are written under `{analysis_output_filepath}` (set via `--analysis_
 
 ## Models Directory
 
-### `models/*.joblib`
+### `models/*.bundle.pkl` — Trained Model Bundles (Format A)
 
-Serialized trained model objects, saved via each modeller's `save_model()` method.
+Serialized model bundles saved via each modeller's `save_model()` method. Files are `joblib.dump()` of a Python dict (not a raw model object). See [Serialization Formats](#serialization-formats) for details.
 
-| File | Class | Description |
-|------|-------|-------------|
-| `recall_model.joblib` | `RecallModeller` or variant (`GPCLFRecallModeller`, `CutoffRecallModeller`, `DirectXGBRecallModeller`) | Predicts fraction of reads/leaves to keep to achieve target recall |
-| `composition_model.joblib` | `BaseCompositionModeller` subclass (`XGBCompositionModeller`, `RFCompositionModeller`, `GBCompositionModeller`, `LRCompositionModeller`, `OptunaXGBCompositionModeller`) | Predicts clade composition |
-| `crosshit_model.joblib` | `CrossHitModeller` | Predicts cross-hit probability |
+| `--recall_model_interface` | Saved file | Class |
+|---|---|---|
+| `xgb`, `morf`, `moxgb_optimized`, `morf_optimized`, `monn_optimized` | `recall_xgb_bundle.pkl` | `RecallModeller` — multi-output regressor predicting full recall curve |
+| `direct` | `cutoff_recall_bundle.pkl` | `CutoffRecallModeller` — RF classifier predicting k_min directly |
+| `direct_xgb` | `direct_xgb_bundle.pkl` | `DirectXGBRecallModeller` — XGBoost regressor predicting tau-crossing fraction directly |
+| `gp_clf` | `recall_gp_clf_pipeline.pkl` | `GPCLFRecallModeller` — per-division GP regressors + CLF threshold |
+
+| `--composition_model_interface` | Saved file | Class |
+|---|---|---|
+| `xgb` | `composition_xgb_bundle.pkl` | `XGBCompositionModeller` |
+| `xgb_optimized` | `composition_optuna_bundle.pkl` | `OptunaXGBCompositionModeller` |
+| `rf` | `composition_rf_bundle.pkl` | `RFCompositionModeller` |
+| `gb` | `composition_gb_bundle.pkl` | `GBCompositionModeller` |
+| `lr` | `composition_lr_bundle.pkl` | `LRCompositionModeller` |
+
+| Model | Saved file | Class |
+|---|---|---|
+| Cross-hit (always trained) | `cross_hit_xgb_bundle.pkl` | `CrossHitModeller` |
 
 ### `models/taxids_to_use.parquet`
 
 The `taxids_to_use` DataFrame at training time — columns: `taxid`, `order`, `family`, `genus`.
+
+### Serialization Formats
+
+Two persistence formats exist, serving different use cases:
+
+| Aspect | Format A — Dict Bundle | Format B — Full Object Dump |
+|--------|------------------------|-----------------------------|
+| **Extension** | `.pkl` | `.joblib` |
+| **Saved via** | Each modeller's `save_model()` | `ModelRegistry.save_models()` |
+| **Content** | `joblib.dump(dict)` with specific keys | `joblib.dump(modeller_object)` — entire instance |
+| **Files** | `recall_xgb_bundle.pkl`, `composition_xgb_bundle.pkl`, `cross_hit_xgb_bundle.pkl`, etc. | `recall_model.joblib`, `composition_model.joblib`, `crosshit_model.joblib` |
+| **Used by** | `ModelTrainer.save_models()` → evaluation pipeline; `ml_api` local file loading | `ModelRegistry.load_models()` → custom deployments |
+
+**Format A dict keys (varies by modeller):**
+
+| Modeller | Bundle keys |
+|---|---|
+| `RecallModeller` / `CutoffRecallModeller` / `DirectXGBRecallModeller` | `model_type`, `model`, `feature_names`, `target_names`, `data_set_divide`, `transformer`, (optional) `target_recall` |
+| `GPCLFRecallModeller` | Above + `pipeline`, `optimal_tau`, `optimal_X`, `optimal_loss` |
+| `BaseCompositionModeller` subclasses | `model_type`, `pipeline`, `feature_names`, `X_train`, `X_test`, `y_train`, `y_test` |
+| `CrossHitModeller` | `model`, `scaler`, `pca` |
+
+**Important:** The two formats are **not interchangeable**. The `ml_api` (FastAPI inference server) expects Format A dict bundles with a `"transformer"` key at the top level. Format B files cannot be loaded by the API.
 
 ### `models/cache/` — Cached Training Data
 

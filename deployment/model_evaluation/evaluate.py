@@ -202,6 +202,7 @@ def get_args():
     )
     parser.add_argument("--mlflow-uri", type=str, default=None, help="MLflow tracking URI")
     parser.add_argument("--no-cache", action="store_true", help="Force recompute cached training data")
+    parser.add_argument("--description", type=str, default="", help="Optional description for trained models")
 
     return parser.parse_args()
 
