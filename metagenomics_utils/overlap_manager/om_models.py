@@ -2269,7 +2269,10 @@ class BaseCompositionModeller(ABC):
             transformers.append(("scaler", StandardScaler() if scaler else "passthrough", stats_cols))
         if tax_cols:
             transformers.append(("passthrough", "passthrough", tax_cols))
-        return ColumnTransformer(transformers, remainder="drop")
+        ct = ColumnTransformer(transformers, remainder="drop")
+        ct.set_output(transform="pandas")
+        ct.verbose_feature_names_out = False
+        return ct
 
     def plot_eval(self, output_directory):
         import matplotlib
@@ -2546,7 +2549,7 @@ class LRCompositionModeller(BaseCompositionModeller):
         from sklearn.pipeline import Pipeline
 
         stats_cols = [c for c in STATS_COLS if c in X_train.columns]
-        return Pipeline(
+        pipeline = Pipeline(
             [
                 (
                     "preprocessor",
@@ -2568,6 +2571,8 @@ class LRCompositionModeller(BaseCompositionModeller):
                 ),
             ]
         ).fit(X_train, y_train)
+        self._feature_names = stats_cols
+        return pipeline
 
     def plot_eval(self, output_directory):
         import matplotlib
@@ -2819,7 +2824,13 @@ def traversal_with_clustering_fixed(
     best_taxid_match = best_taxid_match.sort_values(by=["coverage"], ascending=False)["best_match_taxid"].tolist()
     best_taxid_match = best_taxid_match[0] if len(best_taxid_match) > 0 else None
 
-    if min_shared >= min_dist_threshold:  # stop condition or leaf
+    out_deg = overlap_manager.tree.out_degree(node)
+    succ = list(overlap_manager.tree.successors(node))
+    _is_isolated = (out_deg == 0)
+    if _is_isolated:
+        print(f"DEBUG traversal_fixed: isolated node (out_deg=0): node={node}, min_shared={min_shared}, min_dist={min_dist}, n_true_leaves={len(set(node_true_leaves))}, best_taxid={best_taxid_match}")
+
+    if min_shared >= min_dist_threshold or _is_isolated:  # stop condition or leaf
         node_leaves = overlap_manager.get_node_leaves(node)
         results.append(
             {
@@ -2994,6 +3005,7 @@ def predict_data_set_clades_fixed(
 ):
 
     results = []
+    print(f"DEBUG predict_fixed: {data_set_name}: root_nodes={overlap_manager.root_nodes}, tree_nodes={list(overlap_manager.tree.nodes())[:10]}, tree_edges={overlap_manager.tree.number_of_edges()}, all_node_stats.shape={overlap_manager.all_node_stats.shape}")
     for root in overlap_manager.root_nodes:
         root_results = traversal_with_clustering_fixed(
             overlap_manager, root, m_stats_stats_matrix, min_dist_threshold=min_dist_threshold, results=[]
@@ -3001,9 +3013,11 @@ def predict_data_set_clades_fixed(
         results.extend(root_results)
 
     if len(results) == 0:
+        print(f"DEBUG predict_fixed: {data_set_name}: NO RESULTS (root_nodes={overlap_manager.root_nodes})")
         return pd.DataFrame(
             columns=["data_set", "node", "n_leaves", "leaves", "best_taxid_match", "node_precision", "node_taxids"]
         )
+    print(f"DEBUG predict_fixed: {data_set_name}: {len(results)} results")
 
     results_df = pd.DataFrame(results)
 

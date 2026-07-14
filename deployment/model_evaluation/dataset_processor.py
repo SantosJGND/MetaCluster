@@ -103,9 +103,12 @@ class DatasetProcessor:
                 input_taxid_count=int(input_summary["taxid"].nunique()),
             )
 
-            result = self._compute_baseline_metrics(overlap_manager, result)
+            m_stats_baseline = get_m_stats_matrix(
+                data_set_name, self.config.study_output_filepath, self.ncbi, overlap_manager, filter_no_leaf=False
+            )
+            result = self._compute_baseline_metrics(overlap_manager, result, m_stats_baseline)
             result = self._predict_clades_precleanup(data_set_name, overlap_manager, result)
-            result, filtered_om = self._apply_recall_filter(data_set_name, overlap_manager, result=result)
+            result, filtered_om = self._apply_recall_filter(data_set_name, overlap_manager, result=result, m_stats_baseline=m_stats_baseline)
             result, _ = self._apply_fixed_filter(data_set_name, result=result, max_taxids=12)
 
             if self.config.enable_cross_hit:
@@ -155,7 +158,7 @@ class DatasetProcessor:
 
         return overlap_manager, input_summary
 
-    def _compute_baseline_metrics(self, overlap_manager: OverlapManager, result: DatasetResult) -> DatasetResult:
+    def _compute_baseline_metrics(self, overlap_manager: OverlapManager, result: DatasetResult, m_stats: pd.DataFrame) -> DatasetResult:
         """
         Compute pre-prediction baseline metrics.
 
@@ -163,13 +166,11 @@ class DatasetProcessor:
             overlap_manager: Loaded OverlapManager
             input_summary: Input summary DataFrame
             result: Result object to populate
+            m_stats: Pre-computed m_stats matrix
 
         Returns:
             Updated DatasetResult
         """
-        m_stats = get_m_stats_matrix(
-            result.data_set, self.config.study_output_filepath, self.ncbi, overlap_manager, filter_no_leaf=False
-        )
 
         taxid_match = m_stats[m_stats["best_match_is_best"] == True]
 
@@ -318,7 +319,7 @@ class DatasetProcessor:
         return result, overlap_manager
 
     def _apply_recall_filter(
-        self, data_set_name: str, overlap_manager: OverlapManager, result: DatasetResult
+        self, data_set_name: str, overlap_manager: OverlapManager, result: DatasetResult, m_stats_baseline: pd.DataFrame
     ) -> tuple[DatasetResult, OverlapManager]:
         """
         Apply recall prediction model to filter leaves.
@@ -327,13 +328,12 @@ class DatasetProcessor:
             data_set_name: Name of dataset
             overlap_manager: OverlapManager instance
             result: Result object to populate
+            m_stats_baseline: Pre-computed m_stats matrix for the original OM
 
         Returns:
             Updated DatasetResult
         """
-        m_stats = get_m_stats_matrix(
-            data_set_name, self.config.study_output_filepath, self.ncbi, overlap_manager, filter_no_leaf=False
-        )
+        m_stats = m_stats_baseline
 
         try:
             filtered_om, metrics_dict = cut_off_recall_prediction(
@@ -504,7 +504,8 @@ class DatasetProcessor:
         Returns:
             Updated DatasetResult
         """
-        if overlap_manager.m_stats_matrix.shape[0] < 2:
+        if overlap_manager.m_stats_matrix.shape[0] < 1:
+            print(f"DEBUG postcleanup: {data_set_name}: guard triggered (m_stats_matrix.shape={overlap_manager.m_stats_matrix.shape[0]}, leaves={len(overlap_manager.leaves)}, root_nodes={len(overlap_manager.root_nodes)}, tree_edges={overlap_manager.tree.number_of_edges()})")
             logger.warning(f"Not enough leaves after cleanup for {data_set_name}")
             result.predicted_clades_post = 0
             result.precision.clade_precision_post = 0.0
@@ -514,6 +515,8 @@ class DatasetProcessor:
             data_set_name, self.config.study_output_filepath, self.ncbi, overlap_manager, filter_no_leaf=True
         )
 
+        print(f"DEBUG postcleanup: {data_set_name}: m_stats shape={m_stats.shape}, OM m_stats_matrix.shape={overlap_manager.m_stats_matrix.shape[0]}, leaves={len(overlap_manager.leaves)}, root_nodes={overlap_manager.root_nodes}, tree_edges={overlap_manager.tree.number_of_edges()}")
+
         try:
             fixed_result_df = predict_data_set_clades_fixed(
                 data_set_name, m_stats, overlap_manager, min_dist_threshold=0.6
@@ -521,10 +524,14 @@ class DatasetProcessor:
             result.predicted_clades_fixed = len(fixed_result_df)
             result.precision.clade_precision_fixed = calculate_clade_precision(fixed_result_df, result.input_df)
 
+            if len(fixed_result_df) == 0:
+                print(f"DEBUG postcleanup: {data_set_name}: predict_data_set_clades_fixed returned 0 results")
+
         except Exception as e:
             logger.warning(f"Fixed Clade prediction post-cleanup failed: {e}")
             result.predicted_clades_fixed = 0
             result.precision.clade_precision_fixed = 0.0
+            print(f"DEBUG postcleanup: {data_set_name}: fixed clade prediction failed: {e}")
             return result
 
         print(f"######### FIXED CLADES {data_set_name} #########")
@@ -543,14 +550,18 @@ class DatasetProcessor:
             logger.warning(f"Clade prediction post-cleanup failed: {e}")
             result.predicted_clades_post = 0
             result.precision.clade_precision_post = 0.0
+            print(f"DEBUG postcleanup: {data_set_name}: composition prediction failed: {e}")
             return result
 
         if result_df.empty:
             result.predicted_clades_post = 0
             result.precision.clade_precision_post = 0.0
+            print(f"DEBUG postcleanup: {data_set_name}: composition prediction returned empty DataFrame")
             return result
 
         precision = calculate_clade_precision(result_df, result.input_df)
+        if precision == 0.0:
+            print(f"DEBUG postcleanup: {data_set_name}: composition precision is 0.0 (n_clades={len(result_df)})")
         print(f"######### POST-CLEANUP CLADES {data_set_name} #########")
         print(f"Predicted clades: {len(result_df)}, Precision: {precision:.4f}")
 

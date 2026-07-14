@@ -307,7 +307,7 @@ class OverlapManager:
             self.m_stats_matrix = merge_by_assembly_ID(self.m_stats_matrix)
             if not self.m_stats_matrix.empty and "total_uniq_reads" in matched.columns:
                 self.m_stats_matrix = self.m_stats_matrix.sort_values(by=["total_uniq_reads"], ascending=False)
-                index_keep = int(self.m_stats_matrix.shape[0] * self.max_proportion)
+                index_keep = max(1, int(self.m_stats_matrix.shape[0] * self.max_proportion))
                 if self.max_taxids is not None:
                     index_keep = min(self.m_stats_matrix.shape[0], self.max_taxids)
                 self.m_stats_matrix = self.m_stats_matrix[:index_keep].reset_index(drop=True)

@@ -4,6 +4,8 @@ Model training module for evaluator.
 Handles training of RecallModeller, BaseCompositionModeller (5 variants), and CrossHitModeller.
 """
 
+import hashlib
+import json
 import logging
 import os
 from pathlib import Path
@@ -26,7 +28,6 @@ from metagenomics_utils.overlap_manager.om_models import (
     XGBCompositionModeller,
     cross_hit_prediction_matrix,
     data_set_traversal_with_precision,
-    predict_recall_cutoff_vars,
 )
 
 from .config import EvaluatorConfig, ModelConfig, TrainedModels
@@ -76,7 +77,6 @@ class ModelTrainer:
 
         self._training_results: pd.DataFrame | None = None
         self._prediction_results: pd.DataFrame | None = None
-        self._recall_results: pd.DataFrame | None = None
         self._recall_matrices: list[pd.DataFrame] | None = None
 
         self.models: TrainedModels | None = None
@@ -86,7 +86,7 @@ class ModelTrainer:
         """Return the cache directory path."""
         return self.config.models_dir / "cache"
 
-    def run_data_retrieval(self, training_folders: list) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    def run_data_retrieval(self, training_folders: list) -> tuple[pd.DataFrame, pd.DataFrame]:
         """
         Run data retrieval for training datasets.
 
@@ -94,11 +94,10 @@ class ModelTrainer:
             training_folders: List of training dataset folder names
 
         Returns:
-            Tuple of (training_results_df, prediction_results_df, recall_results_df)
+            Tuple of (training_results_df, prediction_results_df)
         """
         training_results = []
         prediction_results = []
-        recall_results = []
         stats_matrices = []
         recall_matrices = []
 
@@ -135,21 +134,10 @@ class ModelTrainer:
                 if m_stats_stats_matrix.empty:
                     continue
 
-                # Processed features (for cache / composition models)
-                recall_stats = predict_recall_cutoff_vars(
-                    self.config.data_set_divide,
-                    data_set_name,
-                    m_stats_stats_matrix,
-                    self.taxids_to_use,
-                    tax_level=self.config.tax_level,
-                )
-
                 if result_df is not None and not result_df.empty:
                     training_results.append(result_df)
                 if prediction_matrix is not None and not prediction_matrix.empty:
                     prediction_results.append(prediction_matrix)
-                if recall_stats is not None and not recall_stats.empty:
-                    recall_results.append(recall_stats)
                 if m_stats_stats_matrix is not None and not m_stats_stats_matrix.empty:
                     stats_matrices.append(m_stats_stats_matrix)
                     recall_matrices.append(m_stats_stats_matrix)
@@ -166,11 +154,9 @@ class ModelTrainer:
         prediction_results_df = (
             pd.concat(prediction_results, ignore_index=True) if prediction_results else pd.DataFrame()
         )
-        recall_results_df = pd.concat(recall_results, ignore_index=True) if recall_results else pd.DataFrame()
 
         self._training_results = training_results_df
         self._prediction_results = prediction_results_df
-        self._recall_results = recall_results_df
         self._stats_matrices = stats_matrices
         self._recall_matrices = recall_matrices
 
@@ -179,7 +165,7 @@ class ModelTrainer:
         )
         logger.info(f"Raw recall matrices: {len(recall_matrices)} datasets")
 
-        return training_results_df, prediction_results_df, recall_results_df
+        return training_results_df, prediction_results_df
 
     def _get_m_stats_matrix(
         self, data_set_name: str, overlap_manager: OverlapManager, filter_no_leaf: bool = False
@@ -204,11 +190,22 @@ class ModelTrainer:
         cache_dir.mkdir(parents=True, exist_ok=True)
         return cache_dir
 
+    def _compute_cache_key(self) -> str:
+        """Compute a hash of config params that affect training data freshness."""
+        taxids_sorted = sorted(self.taxids_to_use[self.config.tax_level].dropna().unique().tolist()) if self.config.tax_level in self.taxids_to_use.columns else []
+        payload = {
+            "tax_level": self.config.tax_level,
+            "data_set_divide": self.config.data_set_divide,
+            "recall_sort_strategy": self.config.recall_sort_strategy,
+            "holdout_proportion": self.config.holdout_proportion,
+            "taxids": taxids_sorted,
+        }
+        return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+
     def save_cached_data(
         self,
         training_df: pd.DataFrame,
         prediction_df: pd.DataFrame,
-        recall_df: pd.DataFrame,
     ) -> None:
         """
         Save parsed training data to cache for future use.
@@ -216,34 +213,35 @@ class ModelTrainer:
         Args:
             training_df: Training results DataFrame
             prediction_df: Prediction results DataFrame
-            recall_df: Recall results DataFrame
         """
         cache_dir = self._ensure_cache_dir()
 
         training_path = cache_dir / "training_results_cache.parquet"
         prediction_path = cache_dir / "prediction_results_cache.parquet"
-        recall_path = cache_dir / "recall_results_cache.parquet"
         taxid_path = cache_dir / "taxids_to_use_cache.parquet"
 
         training_df.to_parquet(training_path, index=False)
         prediction_df.to_parquet(prediction_path, index=False)
-        recall_df.to_parquet(recall_path, index=False)
         self.taxids_to_use.to_parquet(taxid_path, index=False)
 
         if self._recall_matrices:
             matrices_path = cache_dir / "recall_matrices_cache.joblib"
             joblib.dump(self._recall_matrices, matrices_path)
 
+        config_hash = self._compute_cache_key()
+        hash_path = cache_dir / "config_hash.txt"
+        hash_path.write_text(config_hash)
+
         logger.info(f"Saved cached training data to {cache_dir}")
 
     def load_cached_data(
         self,
-    ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, list[pd.DataFrame]] | None:
+    ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, list[pd.DataFrame]] | None:
         """
         Load cached training data if available.
 
         Returns:
-            Tuple of (training_df, prediction_df, recall_df, taxids_df, recall_matrices) if cache exists, None otherwise
+            Tuple of (training_df, prediction_df, taxids_df, recall_matrices) if cache exists, None otherwise
         """
         if not self.use_cache:
             logger.info("Cache disabled, skipping load")
@@ -253,25 +251,31 @@ class ModelTrainer:
 
         training_path = cache_dir / "training_results_cache.parquet"
         prediction_path = cache_dir / "prediction_results_cache.parquet"
-        recall_path = cache_dir / "recall_results_cache.parquet"
         taxids_path = cache_dir / "taxids_to_use_cache.parquet"
         matrices_path = cache_dir / "recall_matrices_cache.joblib"
+        hash_path = cache_dir / "config_hash.txt"
 
-        if not all(p.exists() for p in [training_path, prediction_path, recall_path, taxids_path, matrices_path]):
+        required = [training_path, prediction_path, taxids_path, matrices_path, hash_path]
+        if not all(p.exists() for p in required):
             logger.info("Cache not found, will compute fresh data")
+            return None
+
+        stored_hash = hash_path.read_text().strip()
+        current_hash = self._compute_cache_key()
+        if stored_hash != current_hash:
+            logger.info("Cache stale (config changed), will compute fresh data")
             return None
 
         try:
             training_df = pd.read_parquet(training_path)
             prediction_df = pd.read_parquet(prediction_path)
-            recall_df = pd.read_parquet(recall_path)
             taxids_df = pd.read_parquet(taxids_path)
             recall_matrices = joblib.load(matrices_path)
 
             logger.info(
-                f"Loaded cached training data: {len(training_df)} training, {len(prediction_df)} prediction, {len(recall_df)} recall, {len(taxids_df)} taxids records, {len(recall_matrices)} matrices"
+                f"Loaded cached training data: {len(training_df)} training, {len(prediction_df)} prediction, {len(taxids_df)} taxids records, {len(recall_matrices)} matrices"
             )
-            return training_df, prediction_df, recall_df, taxids_df, recall_matrices
+            return training_df, prediction_df, taxids_df, recall_matrices
         except Exception as e:
             logger.warning(f"Failed to load cache: {e}, will compute fresh data")
             return None
@@ -316,14 +320,14 @@ class ModelTrainer:
         cached_data = self.load_cached_data()
 
         if cached_data is not None:
-            training_df, prediction_df, recall_df, taxids_df, recall_matrices = cached_data
+            training_df, prediction_df, taxids_df, recall_matrices = cached_data
             logger.info("Using cached training data")
             self._recall_matrices = recall_matrices
         else:
             logger.info("Computing fresh training data")
-            training_df, prediction_df, recall_df = self.run_data_retrieval(training_folders)
+            training_df, prediction_df = self.run_data_retrieval(training_folders)
             if not training_df.empty:
-                self.save_cached_data(training_df, prediction_df, recall_df)
+                self.save_cached_data(training_df, prediction_df)
             taxids_df = self.taxids_to_use
 
         self.taxids_to_use = taxids_df

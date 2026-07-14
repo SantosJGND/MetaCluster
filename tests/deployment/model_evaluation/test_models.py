@@ -70,11 +70,10 @@ class TestModelTrainer:
             config=config, ncbi_wrapper=Mock(), input_tax_df=pd.DataFrame(), taxids_to_use=pd.DataFrame()
         )
 
-        training_df, prediction_df, recall_df = trainer.run_data_retrieval([])
+        training_df, prediction_df = trainer.run_data_retrieval([])
 
         assert training_df.empty
         assert prediction_df.empty
-        assert recall_df.empty
 
     def test_run_data_retrieval_skips_invalid_datasets(self, tmp_path):
         """Skip datasets without mapped reads."""
@@ -103,7 +102,7 @@ class TestModelTrainer:
                 config=config, ncbi_wrapper=Mock(), input_tax_df=pd.DataFrame(), taxids_to_use=pd.DataFrame()
             )
 
-            training_df, prediction_df, recall_df = trainer.run_data_retrieval(["dataset1"])
+            training_df, prediction_df = trainer.run_data_retrieval(["dataset1"])
 
             assert training_df.empty
 
@@ -130,7 +129,6 @@ class TestModelTrainer:
             patch("deployment.model_evaluation.models.OverlapManager") as mock_om,
             patch("deployment.model_evaluation.models.data_set_traversal_with_precision") as mock_traversal,
             patch("deployment.model_evaluation.models.cross_hit_prediction_matrix") as mock_cross,
-            patch("deployment.model_evaluation.models.predict_recall_cutoff_vars") as mock_recall,
             patch("metagenomics_utils.overlap_manager.node_stats.get_m_stats_matrix") as mock_get_m,
         ):
             mock_om_instance = Mock()
@@ -139,7 +137,6 @@ class TestModelTrainer:
             mock_traversal.return_value = pd.DataFrame()
             mock_cross.return_value = pd.DataFrame()
             mock_get_m.return_value = pd.DataFrame()
-            mock_recall.return_value = pd.DataFrame()
 
             trainer = ModelTrainer(
                 config=config, ncbi_wrapper=Mock(), input_tax_df=pd.DataFrame(), taxids_to_use=pd.DataFrame()
