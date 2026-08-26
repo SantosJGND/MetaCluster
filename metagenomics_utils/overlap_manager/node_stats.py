@@ -392,13 +392,14 @@ def node_leaf_shannon_tax_diversity(overlap_manager, node, m_stats_stats_matrix,
 
 def get_subset_composition(node_data, tax_data: pd.DataFrame, tax_level: str = "order"):
     valid_values = set(tax_data[tax_level].dropna().astype(str).tolist())
+
     node_data[tax_level] = (
         node_data[tax_level]
         .fillna("unclassified")
         .astype(str)
         .apply(lambda x: x if x in valid_values else "unclassified")
     )
-
+    
     composition = node_data[tax_level].value_counts(normalize=True).reset_index()
 
     composition.columns = ["tax_level", "proportion"]

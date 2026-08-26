@@ -91,12 +91,6 @@ def traversal_with_precision(
 
     # stop conditions
     stop_traversal = not precision_increased
-    ## forcing stop conditions
-    if force_stop:
-        if min_dist == 1.0:
-            stop_traversal = True
-        if min_dist == 0.0:
-            stop_traversal = False
 
     local_results = pd.DataFrame(
         {
@@ -215,13 +209,13 @@ def predict_recall_cutoff_vars(
        handle feature extraction internally.
     """
     import warnings
-
     warnings.warn(
         "predict_recall_cutoff_vars is deprecated. "
          "Use metagenomics_utils.overlap_manager.feature_transformer.RecallFeatureTransformer instead.",
         DeprecationWarning,
         stacklevel=2,
     )
+
     # index of last True valuie in best_match_is_best
     m_stats_stats_matrix = m_stats_stats_matrix.sort_values(by="total_uniq_reads", ascending=False).reset_index(
         drop=True
@@ -652,8 +646,9 @@ class RecallModeller:
         if self.model is None:
             print("No model to save.")
             return
+        model_type = self.model_interface.model_type if self.model_interface else "unknown"
         bundle = {
-            "model_type": "xgb_multi",
+            "model_type": model_type,
             "model_category": self.model_category,
             "description": self.description,
             "date_trained": self.date_trained,
@@ -672,14 +667,14 @@ class RecallModeller:
         try:
             bundle = joblib.load(os.path.join(input_directory, self.model_save_filename))
             if isinstance(bundle, dict):
-                self.model = bundle["model"]
-                self.RecP_feature_cols = bundle["feature_names"]
-                self.RecP_target_cols = bundle["target_names"]
+                self.model = bundle.get("model")
+                self.RecP_feature_cols = bundle.get("feature_names")
+                self.RecP_target_cols = bundle.get("target_names")
                 self.data_set_divide = bundle.get("data_set_divide", self.data_set_divide)
                 self.tax_level = bundle.get("tax_level", self.tax_level)
                 self.description = bundle.get("description", self.description)
                 self.date_trained = bundle.get("date_trained", self.date_trained)
-                self.transformer = bundle["transformer"]
+                self.transformer = bundle.get("transformer")
                 if "target_recall" in bundle:
                     self.target_recall = bundle["target_recall"]
             else:
@@ -912,12 +907,13 @@ class CutoffRecallModeller(RecallModeller):
             print("No model to save.")
             return
         bundle = {
-            "model_type": "xgb_direct",
+            "model_type": "rf_cutoff",
             "model_category": self.model_category,
             "description": self.description,
             "date_trained": self.date_trained,
             "model": self.model,
             "feature_names": self.RecP_feature_cols,
+            "target_names": self.RecP_target_cols,
             "target_recall": self.target_recall,
             "data_set_divide": self.data_set_divide,
             "tax_level": self.tax_level,
@@ -929,14 +925,15 @@ class CutoffRecallModeller(RecallModeller):
         try:
             bundle = joblib.load(os.path.join(input_directory, self.model_save_filename))
             if isinstance(bundle, dict):
-                self.model = bundle["model"]
-                self.RecP_feature_cols = bundle["feature_names"]
-                self.target_recall = bundle["target_recall"]
-                self.data_set_divide = bundle["data_set_divide"]
+                self.model = bundle.get("model")
+                self.RecP_feature_cols = bundle.get("feature_names")
+                self.RecP_target_cols = bundle.get("target_names")
+                self.target_recall = bundle.get("target_recall", self.target_recall)
+                self.data_set_divide = bundle.get("data_set_divide", self.data_set_divide)
                 self.tax_level = bundle.get("tax_level", self.tax_level)
                 self.description = bundle.get("description", self.description)
                 self.date_trained = bundle.get("date_trained", self.date_trained)
-                self.transformer = bundle["transformer"]
+                self.transformer = bundle.get("transformer")
             else:
                 self.model = bundle
         except Exception as e:
@@ -1069,6 +1066,7 @@ class DirectXGBRecallModeller(RecallModeller):
             "date_trained": self.date_trained,
             "model": self.model,
             "feature_names": self.RecP_feature_cols,
+            "target_names": self.RecP_target_cols,
             "target_recall": self.target_recall,
             "data_set_divide": self.data_set_divide,
             "tax_level": self.tax_level,
@@ -1080,15 +1078,15 @@ class DirectXGBRecallModeller(RecallModeller):
         try:
             bundle = joblib.load(os.path.join(input_directory, self.model_save_filename))
             if isinstance(bundle, dict):
-                self.model = bundle["model"]
-                self.RecP_feature_cols = bundle["feature_names"]
-                self.target_recall = bundle["target_recall"]
-                self.data_set_divide = bundle["data_set_divide"]
+                self.model = bundle.get("model")
+                self.RecP_feature_cols = bundle.get("feature_names")
+                self.RecP_target_cols = bundle.get("target_names")
+                self.target_recall = bundle.get("target_recall", self.target_recall)
+                self.data_set_divide = bundle.get("data_set_divide", self.data_set_divide)
                 self.tax_level = bundle.get("tax_level", self.tax_level)
                 self.description = bundle.get("description", self.description)
                 self.date_trained = bundle.get("date_trained", self.date_trained)
-                self.fractions = np.arange(1, self.data_set_divide + 1) / self.data_set_divide
-                self.transformer = bundle["transformer"]
+                self.transformer = bundle.get("transformer")
             else:
                 self.model = bundle
         except Exception as e:
@@ -1602,18 +1600,18 @@ class GPCLFRecallModeller(RecallModeller):
         try:
             bundle = joblib.load(os.path.join(input_directory, self.model_save_filename))
             if isinstance(bundle, dict):
-                self.pipeline = bundle["pipeline"]
-                self.RecP_feature_cols = bundle["feature_names"]
-                self.RecP_target_cols = bundle["target_names"]
-                self.data_set_divide = bundle["data_set_divide"]
+                self.pipeline = bundle.get("pipeline")
+                self.RecP_feature_cols = bundle.get("feature_names")
+                self.RecP_target_cols = bundle.get("target_names")
+                self.data_set_divide = bundle.get("data_set_divide", self.data_set_divide)
                 self.tax_level = bundle.get("tax_level", self.tax_level)
                 self.description = bundle.get("description", self.description)
                 self.date_trained = bundle.get("date_trained", self.date_trained)
-                self.optimal_tau = bundle["optimal_tau"]
-                self.optimal_X = bundle["optimal_X"]
-                self.optimal_loss = bundle["optimal_loss"]
-                self.fractions = self.pipeline.fractions_
-                self.transformer = bundle["transformer"]
+                self.optimal_tau = bundle.get("optimal_tau")
+                self.optimal_X = bundle.get("optimal_X")
+                self.optimal_loss = bundle.get("optimal_loss")
+                self.fractions = bundle.get("fractions", self.fractions)
+                self.transformer = bundle.get("transformer")
             else:
                 self.pipeline = bundle
         except Exception as e:
@@ -2032,8 +2030,6 @@ class ClusteringPipeline(BaseEstimator, ClassifierMixin):
         state.pop("use_optuna", None)
         state.pop("scale_pos_weight", None)
         state.pop("xgb_params", None)
-        state.pop("feature_names", None)
-        state.pop("feature_names_", None)
         state.pop("random_state", None)
         return state
 
@@ -2045,8 +2041,6 @@ class ClusteringPipeline(BaseEstimator, ClassifierMixin):
         self.use_optuna = False
         self.scale_pos_weight = "auto"
         self.xgb_params = {}
-        self.feature_names = None
-        self.feature_names_ = None
         self.random_state = 42
 
     def _train_with_optuna(self, X, y, pos_weight):
@@ -2209,10 +2203,6 @@ class BaseCompositionModeller(ABC):
                 "pipeline": self.pipeline,
                 "feature_names": self._feature_names,
                 "tax_level": self.tax_level,
-                "X_train": self.X_train,
-                "X_test": self.X_test,
-                "y_train": self.y_train,
-                "y_test": self.y_test,
             }
             joblib.dump(bundle, os.path.join(output_directory, self.model_save_filename))
         else:
@@ -2222,15 +2212,11 @@ class BaseCompositionModeller(ABC):
         try:
             data = joblib.load(os.path.join(output_directory, self.model_save_filename))
             if isinstance(data, dict):
-                self.pipeline = data["pipeline"]
+                self.pipeline = data.get("pipeline")
                 self._feature_names = data.get("feature_names")
                 self.tax_level = data.get("tax_level", self.tax_level)
                 self.description = data.get("description", self.description)
                 self.date_trained = data.get("date_trained", self.date_trained)
-                self.X_train = data.get("X_train")
-                self.X_test = data.get("X_test")
-                self.y_train = data.get("y_train")
-                self.y_test = data.get("y_test")
             else:
                 self.pipeline = data
                 self._feature_names = None
@@ -2259,6 +2245,7 @@ class BaseCompositionModeller(ABC):
 
     def _make_column_transformer(self, X_train, stats_cols=None, scaler=True):
         """Build ColumnTransformer that scales stats cols, leaves tax cols raw."""
+
         from sklearn.compose import ColumnTransformer
         from sklearn.preprocessing import StandardScaler
 
@@ -2730,7 +2717,7 @@ class CrossHitModeller:
         try:
             bundle = joblib.load(os.path.join(input_directory, self.model_save_filename))
             if isinstance(bundle, dict):
-                self.model = bundle["model"]
+                self.model = bundle.get("model")
                 self.description = bundle.get("description", self.description)
                 self.date_trained = bundle.get("date_trained", self.date_trained)
                 self.scaler = bundle.get("scaler")
@@ -2901,7 +2888,6 @@ def traversal_with_prediction(
 
     node_true_leaves = node_total_true_leaves(overlap_manager, node, stats_matrix)
     node_precision = 1 / len(set(node_true_leaves)) if len(node_true_leaves) > 0 else 0.0
-    node_precision = 1 / node_precision if node_precision > 1 else node_precision
     node_leaf_taxids = node_leaves_best_taxids(overlap_manager, node, stats_matrix)
     node_row = overlap_manager.all_node_stats[overlap_manager.all_node_stats["Node"] == node]
     min_dist = node_row["Min_Pairwise_Dist"].values[0]

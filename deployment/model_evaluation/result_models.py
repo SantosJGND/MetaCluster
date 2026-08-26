@@ -34,15 +34,17 @@ JSON Schema:
 """
 
 import json
+import logging
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 
 import pandas as pd
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class PrecisionMetrics:
-    raw_pred_accuracy: float = 0.0
     purity_raw: float = 0.0
     purity_cov_filtered: float = 0.0
     precision_best_match: float = 0.0
@@ -134,7 +136,6 @@ class DatasetResult:
             "output_raw": self.output_raw,
             "output_taxid_count": self.output_taxid_count,
             "output_cov_filtered": self.output_cov_filtered,
-            "clades_fixed": self.predicted_clades_fixed,
             "predicted_clades_pre": self.predicted_clades_pre,
             "predicted_clades_post": self.predicted_clades_post,
             "predicted_clades_fixed": self.predicted_clades_fixed,
@@ -161,8 +162,7 @@ class DatasetResult:
             output_raw=data.get("output_raw", 0),
             output_taxid_count=data.get("output_taxid_count", 0),
             output_cov_filtered=data.get("output_cov_filtered", 0),
-            clade_precision_fixed=data.get("clade_precision_fixed", 0.0),
-            clades_fixed=data.get("clades_fixed", 0),
+            predicted_clades_fixed=data.get("predicted_clades_fixed", 0),
             predicted_clades_pre=data.get("predicted_clades_pre", 0),
             predicted_clades_post=data.get("predicted_clades_post", 0),
             precision=PrecisionMetrics.from_dict(data.get("precision", {})),
@@ -315,6 +315,7 @@ class BatchEvaluationResult:
             "purity_cov_filtered",
             "precision_clade_full",
             "precision_clade_post_cleanup",
+            "precision_clade_fixed",
         ]
 
         available_cols = [c for c in precision_cols if c in self.summary_results.columns]
@@ -328,6 +329,34 @@ class BatchEvaluationResult:
     def get_dataset_count(self) -> int:
         """Get number of datasets processed."""
         return self.summary_results["data_set"].nunique() if "data_set" in self.summary_results.columns else 0
+
+    def save_metadata(self, output_dir: str) -> None:
+        """Save pipeline metadata to TSV.
+
+        Writes pipeline_metadata.tsv with columns: metric, value.
+        Includes dataset counts and names of skipped/failed datasets.
+        """
+        import os
+
+        rows = [
+            ("total_datasets", self.metadata.get("total_datasets", 0)),
+            ("successful", self.metadata.get("successful", 0)),
+            ("failed", self.metadata.get("failed", 0)),
+            ("skipped_count", len(self.metadata.get("skipped", []))),
+        ]
+
+        skipped = self.metadata.get("skipped", [])
+        if skipped:
+            rows.append(("skipped_datasets", ";".join(skipped)))
+
+        errors = self.metadata.get("errors", [])
+        if errors:
+            rows.append(("failed_datasets", ";".join(errors)))
+
+        df = pd.DataFrame(rows, columns=["metric", "value"])
+        path = os.path.join(output_dir, "pipeline_metadata.tsv")
+        df.to_csv(path, sep="\t", index=False)
+        logger.info(f"Saved pipeline metadata to {path}")
 
 
 def create_empty_result() -> BatchEvaluationResult:

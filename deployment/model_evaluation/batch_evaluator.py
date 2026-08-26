@@ -146,6 +146,7 @@ class BatchEvaluator:
 
         results: list[DatasetResult] = []
         errors: list[EvaluatorError] = []
+        skipped: list[str] = []
 
         iterator = tqdm(dataset_names, desc="Evaluating datasets") if progress else dataset_names
 
@@ -154,11 +155,14 @@ class BatchEvaluator:
                 result = self.processor.process(name)
                 if result is not None:
                     results.append(result)
+                else:
+                    skipped.append(name)
+                    logger.warning(f"Skipped {name}: no mapped reads")
             except EvaluatorError as e:
                 errors.append(e)
                 import traceback
 
-                traceback.print_exc()
+                logger.debug(traceback.format_exc())
                 logger.warning(f"Error processing {name}: {e}")
             except Exception as e:
                 logger.error(f"Unexpected error processing {name}: {e}")
@@ -166,16 +170,21 @@ class BatchEvaluator:
 
         if errors:
             logger.warning(f"Failed to process {len(errors)} out of {len(dataset_names)} datasets")
+        if skipped:
+            logger.warning(f"Skipped {len(skipped)} datasets (no mapped reads): {', '.join(skipped)}")
 
-        return self._aggregate_results(results, errors)
+        return self._aggregate_results(results, errors, skipped)
 
-    def _aggregate_results(self, results: list[DatasetResult], errors: list[EvaluatorError]) -> BatchEvaluationResult:
+    def _aggregate_results(
+        self, results: list[DatasetResult], errors: list[EvaluatorError], skipped: list[str]
+    ) -> BatchEvaluationResult:
         """
         Convert list of DatasetResult to BatchEvaluationResult.
 
         Args:
             results: List of successful results
             errors: List of errors encountered
+            skipped: List of dataset names that were skipped (no mapped reads)
 
         Returns:
             Aggregated BatchEvaluationResult
@@ -184,9 +193,10 @@ class BatchEvaluator:
             logger.warning("No successful results to aggregate")
             result = create_empty_result()
             result.metadata = {
-                "total_datasets": 0,
+                "total_datasets": len(errors) + len(skipped),
                 "successful": 0,
                 "failed": len(errors),
+                "skipped": skipped,
                 "errors": [str(e) for e in errors],
             }
             return result
@@ -210,7 +220,6 @@ class BatchEvaluator:
                     "predicted_clades_pre": r.predicted_clades_pre,
                     "predicted_clades_post": r.predicted_clades_post,
                     "predicted_clades_fixed": r.predicted_clades_fixed,
-                    "raw_pred_accuracy": 0,
                     "purity": r.precision.purity_raw,
                     "purity_cov_filtered": r.precision.purity_cov_filtered,
                     "precision_best_match": r.precision.precision_best_match,
@@ -281,14 +290,18 @@ class BatchEvaluator:
                 spurious_composition=spurious_composition,
                 cross_hit_composition=cross_hit_composition,
                 metadata={
-                    "total_datasets": len(results) + len(errors),
+                    "total_datasets": len(results) + len(errors) + len(skipped),
                     "successful": len(results),
                     "failed": len(errors),
+                    "skipped": skipped,
                     "errors": [str(e) for e in errors],
                 },
             )
 
-            logger.info(f"Aggregated results from {len(results)} datasets")
+            logger.info(
+                f"Aggregated results from {len(results)} datasets "
+                f"({len(errors)} failed, {len(skipped)} skipped)"
+            )
             return result
 
         except Exception as e:
@@ -342,6 +355,7 @@ class BatchEvaluator:
             "purity_cov_filtered",
             "precision_clade_full",
             "precision_clade_post_cleanup",
+            "precision_clade_fixed",
         ]
 
         available_cols = [c for c in precision_cols if c in result.summary_results.columns]

@@ -23,13 +23,24 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **`OverlapManager.new_tree_from_distance_matrix()` empty m_stats_matrix** (`manager.py:310`) — added `max(1, ...)` guard around `int(n_rows * max_proportion)` to prevent `index_keep = 0` truncation when `max_proportion * n_rows < 1.0`
+- **`traversal_with_clustering_fixed()` skips isolated nodes** (`om_models.py:2827`) — added `or out_degree(node) == 0` to the stop-branch guard, matching `traversal_with_prediction` behavior for single-leaf trees
+- **`_predict_clades_postcleanup` guard too strict** (`dataset_processor.py:507`) — relaxed `shape[0] < 2` → `< 1`; single-leaf trees now processable
+- **`_make_column_transformer()` missing pandas output** (`om_models.py:2272`) — `set_output(transform="pandas")` + `verbose_feature_names_out = False` to fix sklearn feature name mangling
+- **`LRCompositionModeller.fit()` missing `_feature_names`** (`om_models.py:2574`) — stores `stats_cols` for downstream feature name alignment
+
 ### Changed
 
+- **`dataset_processor.py` redundant `get_m_stats_matrix` calls** — called once in `process()`, passed as param to `_compute_baseline_metrics()` and `_apply_recall_filter()`, eliminating 2 redundant calls per dataset
+- **Cache key invalidation** (`models.py`) — `save_cached_data()` writes a `config_hash.txt` checksum; `load_cached_data()` rejects stale caches on config change
 - **`__getstate__`/`__setstate__` on 4 custom model classes** (`RecallModeller`, `GPCLFThreshold`, `ClusteringPipeline`, `BaseCompositionModeller`) — strips training-only attributes (`X_test`, `y_test`, `study_`, training DataFrames, etc.) from serialized pickles; `__setstate__` re-inits defaults. Existing models must be retrained.
 - **Lazy imports in `metagenomics_utils`** — `networkx`, `NCBITaxonomistWrapper`, `OverlapManager` moved from module-level to inside training-only functions; `overlap_manager/__init__.py` uses `__getattr__` for `OverlapManager`/`merge_*`; `metagenomics_utils/__init__.py` no longer re-exports `ncbi_tools` or `OverlapManager`. `from __future__ import annotations` added to `node_stats.py` and `om_models.py`.
 
 ### Removed
 
+- **`predict_recall_cutoff_vars` from training pipeline** (`models.py`) — deprecated function call and `recall_results_cache.parquet` removed
 - **`biopython`, `matplotlib`, `optuna` from `ml_api/requirements.txt`** — no longer needed at inference time.
 - **Heavy files from Docker image** — `ncbi_tools.py`, `reference_utils.py`, `core.py`, `dataframe_utils.py` deleted from `COPY` in `deployment/ml_api/Dockerfile`.
 
@@ -196,4 +207,13 @@
   - `plot_last_best_match_vs_rmse` — scatter of relindex vs RMSE colored by `recall_after_recall_filter`
   - `plot_cutoff_error_histogram` — histogram of `predicted_k_min − actual_k_min`
   - `plot_cutoff_confusion_matrix` — heatmap of predicted vs actual k_min
-  - All wired into `ResultVisualizer.plot_all()`, self-guarding on column existence
+   - All wired into `ResultVisualizer.plot_all()`, self-guarding on column existence
+
+### Changed
+
+- **`predict_recall_cutoff_from_table`: model lookup uses full composite key** (`app.py`) — `request.model` is used directly as the cache key instead of constructing one from `request.tax_level` + category + variant. Column validation checks `transformer.tax_level` exists in the input DataFrame rather than comparing against bundle metadata.
+
+### Removed
+
+- **`tax_level` from `RecallCutoffFromTableRequest`** (`schemas.py`) — request no longer accepts `tax_level`; `model` field now expects the full composite key (e.g. `"order_recall_gp_clf"`) from `GET /models`.
+- **`tax_level` parameter from `MLAPIClient.predict_recall_cutoff()`** (`client.py`) — `model` parameter expects the full composite key; `tax_level` is no longer sent to the API.

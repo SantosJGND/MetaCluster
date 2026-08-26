@@ -323,6 +323,14 @@ def main(args):
 
     results = evaluator.evaluate(test_folders)
 
+    meta = results.metadata
+    logger.info(
+        f"Evaluated {meta.get('total_datasets', 0)} datasets: "
+        f"{meta.get('successful', 0)} successful, "
+        f"{meta.get('failed', 0)} failed, "
+        f"{len(meta.get('skipped', []))} skipped"
+    )
+
     logger.info("Saving results...")
     if config.use_cache is False:
         trainer._stats_matrices.to_csv(
@@ -330,6 +338,8 @@ def main(args):
         )
     results.save_tsv(str(config.analysis_output_filepath))
     results.to_json(str(config.analysis_output_filepath / "evaluation_results.json"))
+    results.save_metadata(str(config.analysis_output_filepath))
+    evaluator.save_summary_statistics(results, str(config.analysis_output_filepath))
 
     logger.info("Generating visualizations...")
     visualizer = ResultVisualizer(str(config.analysis_output_filepath))

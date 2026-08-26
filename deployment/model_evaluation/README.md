@@ -155,9 +155,11 @@ visualizer.plot_all(results)
 |------|-------------|
 | `test_datasets_overall_precision.tsv` | Per-dataset precision scores |
 | `test_datasets_summary_results.tsv` | Detailed metrics per dataset |
-| `test_datasets_trash_composition.tsv` | Trash (unclassified) composition |
+| `pipeline_metadata.tsv` | Run summary (dataset counts, skipped/failed names) |
+| `test_datasets_spurious_composition.tsv` | Spurious (unclassified) composition |
 | `test_datasets_cross_hit_composition.tsv` | Cross-hit composition |
-| `precision_summary_statistics.tsv` | Summary statistics |
+| `precision_summary_statistics.tsv` | Summary statistics for precision metrics |
+| `cross_hit_summary_statistics.tsv` | Summary statistics for cross-hit metrics |
 | `models/` | Trained model files |
 | `models/cache/` | Cached training data (parquet files) |
 
@@ -165,7 +167,7 @@ visualizer.plot_all(results)
 
 | Plot | Description |
 |------|-------------|
-| `overall_precision_histogram.png` | Distribution of precision scores |
+| `precision_clade_post_histogram.png` | Distribution of precision scores |
 | `precision_metrics_boxplot.png` | Comparison of precision metrics |
 | `precision_metrics_histogram.png` | Precision metrics distribution |
 | `recall_metrics_boxplot.png` | Comparison of recall metrics |

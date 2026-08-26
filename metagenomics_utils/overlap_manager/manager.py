@@ -153,7 +153,7 @@ class OverlapManager:
             self.prune_empty_nodes()
             self._rebuild_node_leaves_cache()
             self.recalculate_all_min_pairwise_dist()
-            print("recalc")
+            
         except Exception as e:
             import traceback
 
@@ -326,6 +326,7 @@ class OverlapManager:
                     columns=["Node", "Num_Leaves", "Min_Dist", "Private_Reads", "Private_Proportion"]
                 )
                 return
+            
             if distance_matrix.shape[0] == 1:
                 self.distance_mat = distance_matrix
                 self.leaves = list(distance_matrix.index)

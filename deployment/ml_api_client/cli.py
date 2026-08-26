@@ -3,9 +3,7 @@ import csv
 import json
 import sys
 
-import requests
-
-from .client import MLAPIClient
+from .client import MLAPIError, MLAPIClient
 
 
 def _read_rows(csv_path: str) -> list[dict]:
@@ -17,7 +15,8 @@ def _read_rows(csv_path: str) -> list[dict]:
                 {
                     "taxid": int(row["taxid"]),
                     "total_uniq_reads": float(row["total_uniq_reads"]),
-                    "best_match_is_best": row.get("best_match_is_best", "false").strip().lower() == "true",
+                    "order": row["order"],
+                    "family": row["family"],
                 }
             )
     return rows
@@ -40,12 +39,13 @@ def main():
     reload_p = sub.add_parser("reload", help="Reload model cache")
     reload_p.add_argument("model_type", nargs="?", help="Specific model to reload (omit for all)")
 
+    comp_tax_p = sub.add_parser("composition-tax-level", help="Get tax_level of composition model(s)")
+    comp_tax_p.add_argument("--model", help="Full composite key or short variant (e.g. order_composition_rf or rf)")
+
     recall_p = sub.add_parser("predict-recall", help="Predict recall cutoff from raw table")
-    recall_p.add_argument("--rows", required=True, help="CSV with taxid,total_uniq_reads[,best_match_is_best]")
+    recall_p.add_argument("--rows", required=True, help="CSV with taxid,total_uniq_reads,order,family")
     recall_p.add_argument("--model", default="gp_clf", choices=["gp_clf", "xgb_direct", "xgb_multi"],
                           help="Recall model variant (default: gp_clf)")
-    recall_p.add_argument("--tax-level", default="order",
-                          help="Taxonomic level the model was trained on (default: order)")
     recall_p.add_argument("--target-recall", type=float,
                           help="Target recall threshold (0-1)")
     recall_p.add_argument("--confidence", type=float,
@@ -56,6 +56,8 @@ def main():
 
     comp_p = sub.add_parser("predict-composition-stop", help="Predict stop_traversal from node features")
     comp_p.add_argument("--features", required=True, help="JSON file with node feature dict")
+    comp_p.add_argument("--model", default="order_composition_xgb",
+                        help="Composition model composite key (default: order_composition_xgb)")
 
     args = parser.parse_args()
     client = MLAPIClient(base_url=args.base_url)
@@ -67,12 +69,13 @@ def main():
             result = client.models()
         elif args.command == "reload":
             result = client.reload(args.model_type)
+        elif args.command == "composition-tax-level":
+            result = client.composition_model_tax_level(args.model)
         elif args.command == "predict-recall":
             rows = _read_rows(args.rows)
             result = client.predict_recall_cutoff(
                 rows,
                 model=args.model,
-                tax_level=args.tax_level,
                 target_recall=args.target_recall,
                 confidence=args.confidence,
             )
@@ -81,13 +84,12 @@ def main():
             result = client.predict_clustering_threshold(features)
         elif args.command == "predict-composition-stop":
             features = _read_json(args.features)
-            result = client.predict_composition_stop_traversal(features)
+            result = client.predict_composition_stop_traversal(features, model=args.model)
         else:
             parser.print_help()
             sys.exit(1)
-    except requests.HTTPError as e:
-        detail = e.response.text if e.response is not None else str(e)
-        print(json.dumps({"error": detail}), file=sys.stderr)
+    except MLAPIError as e:
+        print(json.dumps({"error": e.detail, "status_code": e.status_code}, default=str), file=sys.stderr)
         sys.exit(1)
     except Exception as e:
         print(json.dumps({"error": str(e)}), file=sys.stderr)

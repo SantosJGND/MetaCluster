@@ -1,3 +1,3 @@
-from .client import MLAPIClient
+from .client import MLAPIError, MLAPIClient
 
-__all__ = ["MLAPIClient"]
+__all__ = ["MLAPIError", "MLAPIClient"]

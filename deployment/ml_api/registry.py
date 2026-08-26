@@ -55,6 +55,7 @@ def discover_models():
         tax_level = bundle.get("tax_level", "unknown")
         model_type = bundle.get("model_type", p.stem)
         description = bundle.get("description", "")
+        date_trained = bundle.get("date_trained", "")
 
         if tax_level in GENUS_ALIASES:
             tax_level = "genus"
@@ -66,6 +67,7 @@ def discover_models():
             "tax_level": tax_level,
             "model_type": model_type,
             "description": description,
+            "date_trained": date_trained,
             "bundle": bundle,
         }
 
@@ -153,12 +155,16 @@ def get_model_version(model_type):
 def load_and_cache(model_type: str) -> dict:
     model = load_production_model(model_type)
     version_info = get_model_version(model_type)
+    meta = _ALL_MODELS.get(model_type, {})
     entry = {
         "model": model,
         "type": MODEL_TYPE_MAP.get(model_type, "unknown"),
         "version": version_info.get("version"),
         "stage": version_info.get("stage"),
         "run_id": version_info.get("run_id"),
+        "description": meta.get("description", ""),
+        "date_trained": meta.get("date_trained", ""),
+        "tax_level": meta.get("tax_level", "unknown"),
         "loaded_at": time.time(),
     }
     with _cache_lock:
@@ -177,6 +183,7 @@ def get_cached_model(model_type: str) -> tuple:
         "version": entry["version"],
         "stage": entry["stage"],
         "run_id": entry["run_id"],
+        "tax_level": entry["tax_level"],
     }
 
 
@@ -199,7 +206,43 @@ def cache_status() -> list[dict]:
             "type": e["type"],
             "version": e["version"],
             "stage": e["stage"],
+            "description": e.get("description", ""),
+            "date_trained": e.get("date_trained", ""),
+            "tax_level": e.get("tax_level", "unknown"),
             "loaded_seconds_ago": round(time.time() - e["loaded_at"], 1),
         }
         for mt, e in sorted(items)
+    ]
+
+
+def composition_models_tax_level(model: str | None = None) -> list[dict]:
+    """Return tax_level metadata for composition models.
+
+    Args:
+        model: Optional full composite key (e.g. ``order_composition_rf``) or
+               short model_type variant (e.g. ``rf``). Omit for all composition models.
+
+    Returns:
+        List of dicts with ``key``, ``model_type``, ``tax_level``, ``category``,
+        ``description``, and ``date_trained``.
+    """
+    if not _ALL_MODELS:
+        discover_models()
+    comp = [
+        (k, v)
+        for k, v in sorted(_ALL_MODELS.items())
+        if v.get("model_category") == "composition"
+    ]
+    if model:
+        comp = [(k, v) for k, v in comp if k == model or v.get("model_type") == model]
+    return [
+        {
+            "key": k,
+            "model_type": v.get("model_type"),
+            "tax_level": v.get("tax_level", "unknown"),
+            "category": v.get("model_category"),
+            "description": v.get("description", ""),
+            "date_trained": v.get("date_trained", ""),
+        }
+        for k, v in comp
     ]

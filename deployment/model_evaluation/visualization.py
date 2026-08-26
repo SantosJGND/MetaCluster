@@ -616,24 +616,7 @@ class ResultVisualizer:
         plt.close()
 
     def plot_clade_precision_by_taxlevel(self, summary_results: pd.DataFrame, tax_level: str) -> None:
-        """
-        Plot clade precision by taxonomic level.
-
-        Args:
-            summary_results: Summary results DataFrame
-            tax_level: Taxonomic level column name
-        """
-        if tax_level not in summary_results.columns or "raw_pred_accuracy" not in summary_results.columns:
-            return
-
-        plt.figure(figsize=(10, 8))
-        plt.ylabel("Raw Precision (Post)")
-        sns.boxplot(x=tax_level, y="raw_pred_accuracy", data=summary_results)
-        plt.xticks(rotation=45)
-        plt.grid(True)
-        plt.tight_layout()
-        plt.savefig(os.path.join(self.output_dir, "clade_precision.png"))
-        plt.close()
+        pass
 
     def plot_mutation_rate_vs_crosshits(
         self,
@@ -816,7 +799,7 @@ class ResultVisualizer:
             html_content += "</div>\n"
 
         plot_files = [
-            "overall_precision_histogram.png",
+            "precision_clade_post_histogram.png",
             "precision_metrics_boxplot.png",
             "recall_metrics_boxplot.png",
             "recall_improvement_histogram.png",

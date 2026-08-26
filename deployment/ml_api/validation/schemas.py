@@ -4,13 +4,13 @@ from pydantic import BaseModel, Field
 class RecallCutoffFromTableRow(BaseModel):
     taxid: int
     total_uniq_reads: float
-    best_match_is_best: bool = False
+    order: str | None = None
+    family: str | None = None
 
 
 class RecallCutoffFromTableRequest(BaseModel):
-    model: str = "gp_clf"
+    model: str = "order_recall_gp_clf"
     rows: list[RecallCutoffFromTableRow]
-    tax_level: str = "family"
     target_recall: float | None = None
     confidence: float | None = None
 
@@ -79,8 +79,7 @@ class ClusteringThresholdResult(BaseModel):
 
 
 class CompositionStopTraversalRequest(BaseModel):
-    model: str = "xgb"
-    tax_level: str = "order"
+    model: str = "order_composition_xgb"
     features: dict[str, float] = Field(
         ...,
         description="Feature dict — keys matching training column names, values are feature values at the node",
@@ -93,3 +92,4 @@ class CompositionStopTraversalResult(BaseModel):
     confidence_score: float = Field(..., description="Confidence score of the prediction")
     model_version: str | None = Field(None, description="Version of the model used")
     model_stage: str | None = Field(None, description="MLflow stage of the model used")
+    tax_level: str | None = Field(None, description="Taxonomic level the model was trained on")

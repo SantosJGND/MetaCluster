@@ -805,14 +805,14 @@ def plot_recall_comparison(classifier_df: pd.DataFrame, per_dataset_df: pd.DataF
     combined = pd.concat([classifier_df, overall], ignore_index=True)
 
     fig, ax = plt.subplots(figsize=(14, 6))
-    top_classifiers = classifier_df.groupby("classifier")["recall"].median().nlargest(19).index.tolist()
+    top_classifiers = classifier_df.groupby("classifier")["recall"].median().index.tolist()
     order = ["overall"] + top_classifiers
     plot_df = combined[combined["classifier"].isin(order)]
     palette = ["#e74c3c" if c == "overall" else "lightblue" for c in order]
     sns.boxplot(data=plot_df, x="classifier", y="recall", ax=ax, order=order, palette=palette)
     ax.set_xlabel("Classifier", fontsize=12)
     ax.set_ylabel("Recall", fontsize=12)
-    ax.set_title("Recall: Overall vs Per-Classifier (Top 19)", fontsize=14)
+    ax.set_title("Recall: Overall vs Per-Classifier", fontsize=14)
     ax.tick_params(axis="x", rotation=45)
     ax.grid(axis="y", alpha=0.3)
     plt.tight_layout()

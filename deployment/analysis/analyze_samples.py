@@ -27,49 +27,76 @@ from metagenomics_utils.overlap_manager.node_stats import (
 )
 from metagenomics_utils.overlap_manager.om_models import (
     CutoffRecallModeller,
+    DirectXGBRecallModeller,
+    GBCompositionModeller,
     GPCLFRecallModeller,
+    LRCompositionModeller,
+    OptunaXGBCompositionModeller,
     RecallModeller,
+    RFCompositionModeller,
     XGBCompositionModeller,
     predict_data_set_clades_composition,
 )
 
-logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s")
+logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
+
+RECALL_MODEL_MAP = {
+    "gp_clf": ("recall_gp_clf_pipeline.pkl", GPCLFRecallModeller),
+    "direct": ("cutoff_recall_bundle.pkl", CutoffRecallModeller),
+    "xgb": ("recall_xgb_bundle.pkl", RecallModeller),
+    "direct_xgb": ("direct_xgb_bundle.pkl", DirectXGBRecallModeller),
+}
+
+COMPOSITION_MODEL_MAP = {
+    "xgb": ("composition_xgb_bundle.pkl", XGBCompositionModeller),
+    "rf": ("composition_rf_bundle.pkl", RFCompositionModeller),
+    "gb": ("composition_gb_bundle.pkl", GBCompositionModeller),
+    "lr": ("composition_lr_bundle.pkl", LRCompositionModeller),
+    "xgb_optimized": ("composition_optuna_bundle.pkl", OptunaXGBCompositionModeller),
+}
 
 
-def _load_recall_modeller(model_dir: str, data_set_divide: int) -> RecallModeller:
+def _load_recall_modeller(model_dir: str, data_set_divide: int, model_type: str | None = None) -> RecallModeller:
     """
-    Load the correct recall modeller based on which bundle file exists.
+    Load the correct recall modeller based on model_type or auto-detect from bundle files.
 
-    Inspects the model directory for known bundle filenames and instantiates
-    the appropriate subclass of RecallModeller, keeping the call site unified
-    via predict_cutoff().
+    Args:
+        model_dir: Directory containing model bundle files.
+        data_set_divide: Number of recall divisions used in training.
+        model_type: Optional model variant key (e.g. "gp_clf", "direct_xgb").
+                    If None, auto-detects by scanning for known bundle files.
 
     Returns:
-        An instance of a RecallModeller subclass (GPCLFRecallModeller,
-        CutoffRecallModeller, or base RecallModeller).
+        An instance of a RecallModeller subclass.
 
     Raises:
-        FileNotFoundError: If no recognised bundle file is found.
+        FileNotFoundError: If no matching bundle file is found.
     """
-    bundle_map = {
-        "recall_gp_clf_pipeline.pkl": (GPCLFRecallModeller, {"data_set_divide": data_set_divide}),
-        "cutoff_recall_bundle.pkl": (CutoffRecallModeller, {"data_set_divide": data_set_divide, "target_recall": 1.0}),
-        "recall_xgb_bundle.pkl": (RecallModeller, {"data_set_divide": data_set_divide}),
-    }
+    if model_type is not None:
+        if model_type not in RECALL_MODEL_MAP:
+            available = list(RECALL_MODEL_MAP)
+            raise ValueError(f"Unknown recall model type '{model_type}'. Available: {available}")
+        bundle_file, cls = RECALL_MODEL_MAP[model_type]
+        bundle_path = os.path.join(model_dir, bundle_file)
+        if not os.path.exists(bundle_path):
+            raise FileNotFoundError(f"Recall model '{model_type}' expected bundle {bundle_file} not found in {model_dir}")
+        modeller = cls(data_set_divide=data_set_divide)
+        modeller.load_model(model_dir)
+        logger.info(f"Loaded {cls.__name__} ({model_type}) from {bundle_file}")
+        return modeller
 
-    for bundle, (cls, kwargs) in bundle_map.items():
-        bundle_path = os.path.join(model_dir, bundle)
+    for key, (bundle_file, cls) in RECALL_MODEL_MAP.items():
+        bundle_path = os.path.join(model_dir, bundle_file)
         if os.path.exists(bundle_path):
-            modeller = cls(**kwargs)
+            modeller = cls(data_set_divide=data_set_divide)
             modeller.load_model(model_dir)
-            logger.info(f"Loaded {cls.__name__} from {bundle}")
+            logger.info(f"Auto-detected {cls.__name__} ({key}) from {bundle_file}")
             return modeller
 
     available = [f for f in os.listdir(model_dir) if f.endswith("_bundle.pkl")]
     raise FileNotFoundError(
-        f"No recognised recall bundle in {model_dir}. Expected one of: {list(bundle_map)}. Found: {available}"
+        f"No recognised recall bundle in {model_dir}. Expected one of: {list(RECALL_MODEL_MAP)}. Found: {available}"
     )
 
 
@@ -92,6 +119,8 @@ def process_sample(
     output_db: str,
     target_recall: float = 0.95,
     data_set_divide: int = 5,
+    recall_model_type: str | None = None,
+    composition_model_type: str | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     """
     Process a single sample and return predictions and cluster metrics.
@@ -106,6 +135,8 @@ def process_sample(
         output_db: Path to taxonomy database.
         target_recall: Target recall threshold (default 0.95).
         data_set_divide: Number of recall divisions used in model (default 5).
+        recall_model_type: Optional recall model variant key (e.g. "gp_clf", "direct_xgb").
+        composition_model_type: Optional composition model variant key (e.g. "xgb", "rf").
 
     Returns:
         Tuple of (predictions DataFrame, pruned predictions DataFrame, cluster metrics dict)
@@ -129,10 +160,31 @@ def process_sample(
 
     ncbi_wrapper.resolve_lineages(taxids_to_use["taxid"].tolist())
 
-    composition_modeller = XGBCompositionModeller()
-    composition_modeller.load_model(os.path.join(model_dir))
+    if composition_model_type is not None:
+        if composition_model_type not in COMPOSITION_MODEL_MAP:
+            available = list(COMPOSITION_MODEL_MAP)
+            raise ValueError(f"Unknown composition model type '{composition_model_type}'. Available: {available}")
+        bundle_file, cls = COMPOSITION_MODEL_MAP[composition_model_type]
+        bundle_path = os.path.join(model_dir, bundle_file)
+        if not os.path.exists(bundle_path):
+            raise FileNotFoundError(
+                f"Composition model '{composition_model_type}' expected bundle {bundle_file} not found in {model_dir}"
+            )
+        composition_modeller = cls()
+        composition_modeller.load_model(model_dir)
+        logger.info(f"Loaded {cls.__name__} ({composition_model_type}) from {bundle_file}")
+    else:
+        composition_modeller = None
+        for key, (bundle_file, cls) in COMPOSITION_MODEL_MAP.items():
+            if os.path.exists(os.path.join(model_dir, bundle_file)):
+                composition_modeller = cls()
+                composition_modeller.load_model(model_dir)
+                logger.info(f"Auto-detected {cls.__name__} ({key}) from {bundle_file}")
+                break
+        if composition_modeller is None:
+            raise FileNotFoundError(f"No composition model bundle found in {model_dir}")
 
-    recall_modeller = _load_recall_modeller(os.path.join(model_dir), data_set_divide)
+    recall_modeller = _load_recall_modeller(model_dir, data_set_divide, model_type=recall_model_type)
 
     overlap_manager = OverlapManager(os.path.join(results_dir, "clustering"), max_proportion=1.0)
     if not overlap_manager.check_data_available():
@@ -445,6 +497,18 @@ def main():
         default=20,
         help="Number of recall divisions used in model training (default: 20)",
     )
+    parser.add_argument(
+        "--recall-model",
+        choices=list(RECALL_MODEL_MAP),
+        default="direct_xgb",
+        help="Recall model variant to use (default: direct_xgb)",
+    )
+    parser.add_argument(
+        "--composition-model",
+        choices=list(COMPOSITION_MODEL_MAP),
+        default="rf",
+        help="Composition model variant to use (default: rf)",
+    )
 
     args = parser.parse_args()
 
@@ -500,6 +564,8 @@ def main():
             output_db=args.taxonomy_db,
             target_recall=args.target_recall,
             data_set_divide=args.data_set_divide,
+            recall_model_type=args.recall_model,
+            composition_model_type=args.composition_model,
         )
 
         if not results_pred.empty:

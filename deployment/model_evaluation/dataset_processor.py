@@ -310,7 +310,8 @@ class DatasetProcessor:
         logger.debug(f"######### FIXED FILTER M-STATS {data_set_name} #########")
         logger.debug(f"{new_m_stats.shape}, {max_taxids}")
         recall_raw, recall_cov, kept_taxids, kept_taxids_cov = compute_recall(new_m_stats, result.input_df)
-        print("#########################################")
+        logger.debug(f"######### FIXED FILTER {data_set_name} #########")
+        logger.debug(f"m_stats shape={new_m_stats.shape}, max_taxids={max_taxids}")
 
         result.input_df["found_in_fixed_filter"] = result.input_df["taxid"].isin(kept_taxids)
 
@@ -351,7 +352,7 @@ class DatasetProcessor:
             logger.warning(f"Recall filter failed: {e}")
             import traceback
 
-            print(traceback.format_exc())
+            logger.debug(traceback.format_exc())
             raise PredictionError(data_set_name, "recall_filter", str(e)) from e
 
         new_m_stats = get_m_stats_matrix(
@@ -368,7 +369,8 @@ class DatasetProcessor:
             f"{new_m_stats.shape}, {filtered_om.original_m_stats_matrix.shape}, {self.config.target_recall}, {metrics_dict.get('target_percentile', None)}, {metrics_dict.get('keep_index', None)}"
         )
         recall_raw, recall_cov, taxid_found, _taxid_found_cov = compute_recall(new_m_stats, result.input_df)
-        print("#########################################")
+        logger.debug(f"######### RECALL FILTER {data_set_name} #########")
+        logger.debug(f"m_stats shape={new_m_stats.shape}, keep_index={metrics_dict.get('keep_index', None)}")
 
         result.input_df["found_in_recall_filter"] = result.input_df["taxid"].isin(taxid_found)
 
@@ -411,7 +413,7 @@ class DatasetProcessor:
             logger.warning(f"Clade prediction pre-cleanup failed: {e}")
             import traceback
 
-            traceback.print_exc()
+            logger.debug(traceback.format_exc())
             return result
 
         precision = calculate_clade_precision(results_df, result.input_df)
@@ -505,7 +507,7 @@ class DatasetProcessor:
             Updated DatasetResult
         """
         if overlap_manager.m_stats_matrix.shape[0] < 1:
-            print(f"DEBUG postcleanup: {data_set_name}: guard triggered (m_stats_matrix.shape={overlap_manager.m_stats_matrix.shape[0]}, leaves={len(overlap_manager.leaves)}, root_nodes={len(overlap_manager.root_nodes)}, tree_edges={overlap_manager.tree.number_of_edges()})")
+            logger.debug(f"postcleanup guard triggered for {data_set_name}: m_stats_matrix.shape={overlap_manager.m_stats_matrix.shape[0]}, leaves={len(overlap_manager.leaves)}, root_nodes={len(overlap_manager.root_nodes)}, tree_edges={overlap_manager.tree.number_of_edges()}")
             logger.warning(f"Not enough leaves after cleanup for {data_set_name}")
             result.predicted_clades_post = 0
             result.precision.clade_precision_post = 0.0
@@ -515,7 +517,7 @@ class DatasetProcessor:
             data_set_name, self.config.study_output_filepath, self.ncbi, overlap_manager, filter_no_leaf=True
         )
 
-        print(f"DEBUG postcleanup: {data_set_name}: m_stats shape={m_stats.shape}, OM m_stats_matrix.shape={overlap_manager.m_stats_matrix.shape[0]}, leaves={len(overlap_manager.leaves)}, root_nodes={overlap_manager.root_nodes}, tree_edges={overlap_manager.tree.number_of_edges()}")
+        logger.debug(f"postcleanup {data_set_name}: m_stats shape={m_stats.shape}, OM m_stats_matrix.shape={overlap_manager.m_stats_matrix.shape[0]}, leaves={len(overlap_manager.leaves)}, root_nodes={overlap_manager.root_nodes}, tree_edges={overlap_manager.tree.number_of_edges()}")
 
         try:
             fixed_result_df = predict_data_set_clades_fixed(
@@ -525,17 +527,17 @@ class DatasetProcessor:
             result.precision.clade_precision_fixed = calculate_clade_precision(fixed_result_df, result.input_df)
 
             if len(fixed_result_df) == 0:
-                print(f"DEBUG postcleanup: {data_set_name}: predict_data_set_clades_fixed returned 0 results")
+                logger.debug(f"postcleanup {data_set_name}: predict_data_set_clades_fixed returned 0 results")
 
         except Exception as e:
             logger.warning(f"Fixed Clade prediction post-cleanup failed: {e}")
             result.predicted_clades_fixed = 0
             result.precision.clade_precision_fixed = 0.0
-            print(f"DEBUG postcleanup: {data_set_name}: fixed clade prediction failed: {e}")
+            logger.debug(f"postcleanup {data_set_name}: fixed clade prediction failed: {e}")
             return result
 
-        print(f"######### FIXED CLADES {data_set_name} #########")
-        print(f"Predicted clades: {len(fixed_result_df)}, Precision: {result.precision.clade_precision_fixed:.4f}")
+        logger.debug(f"######### FIXED CLADES {data_set_name} #########")
+        logger.debug(f"Predicted clades: {len(fixed_result_df)}, Precision: {result.precision.clade_precision_fixed:.4f}")
 
         try:
             result_df = predict_data_set_clades_composition(
@@ -550,20 +552,20 @@ class DatasetProcessor:
             logger.warning(f"Clade prediction post-cleanup failed: {e}")
             result.predicted_clades_post = 0
             result.precision.clade_precision_post = 0.0
-            print(f"DEBUG postcleanup: {data_set_name}: composition prediction failed: {e}")
+            logger.debug(f"postcleanup {data_set_name}: composition prediction failed: {e}")
             return result
 
         if result_df.empty:
             result.predicted_clades_post = 0
             result.precision.clade_precision_post = 0.0
-            print(f"DEBUG postcleanup: {data_set_name}: composition prediction returned empty DataFrame")
+            logger.debug(f"postcleanup {data_set_name}: composition prediction returned empty DataFrame")
             return result
 
         precision = calculate_clade_precision(result_df, result.input_df)
         if precision == 0.0:
-            print(f"DEBUG postcleanup: {data_set_name}: composition precision is 0.0 (n_clades={len(result_df)})")
-        print(f"######### POST-CLEANUP CLADES {data_set_name} #########")
-        print(f"Predicted clades: {len(result_df)}, Precision: {precision:.4f}")
+            logger.debug(f"postcleanup {data_set_name}: composition precision is 0.0 (n_clades={len(result_df)})")
+        logger.debug(f"######### POST-CLEANUP CLADES {data_set_name} #########")
+        logger.debug(f"Predicted clades: {len(result_df)}, Precision: {precision:.4f}")
 
         result.predicted_clades_fixed = len(fixed_result_df)
         result.predicted_clades_post = len(result_df)

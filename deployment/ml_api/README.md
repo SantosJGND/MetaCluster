@@ -8,6 +8,7 @@ FastAPI service serving ML models for the INSaFLU platform.
 |---|---|---|
 | `GET`  | `/health`                              | Liveness check |
 | `GET`  | `/models`                              | List cached models with version/stage |
+| `GET`  | `/composition_model_tax_level`         | Taxonomic level of composition model(s). Optional `?model=` (composite key or short variant). |
 | `POST` | `/reload`                              | Reload all models from MLflow registry (or local files if MLflow unreachable) |
 | `POST` | `/reload/{model_type}`                 | Reload a single model (composite key, see below) |
 | `POST` | `/predict_recall_cutoff_from_table`    | Recall cutoff prediction from raw table rows. Accepts `tax_level` in body. |
@@ -57,6 +58,14 @@ To reload after replacing a pickle file, use the composite key:
 
     curl -X POST http://localhost:8000/reload/order_recall_gp_clf
     curl -X POST http://localhost:8000/reload/order_composition_xgb
+
+To look up the taxonomic level of a composition model (composite key or short variant):
+
+    curl -s http://localhost:8000/composition_model_tax_level?model=rf
+    # {"key": "order_composition_rf", "model_type": "rf", "tax_level": "order", ...}
+
+    curl -s http://localhost:8000/composition_model_tax_level
+    # {"models": [{"key": "order_composition_rf", "model_type": "rf", "tax_level": "order", ...}, ...]}
 
 ## Environment
 

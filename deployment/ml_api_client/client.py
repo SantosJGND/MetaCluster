@@ -3,6 +3,16 @@ from typing import Any
 import requests
 
 
+class MLAPIError(Exception):
+    """Error raised when the ML API returns a non-2xx response."""
+
+    def __init__(self, status_code: int, detail: str, response_body: Any = None):
+        self.status_code = status_code
+        self.detail = detail
+        self.response_body = response_body
+        super().__init__(f"HTTP {status_code}: {detail}")
+
+
 class MLAPIClient:
     """Python client for the INSaFLU ML API.
 
@@ -17,14 +27,24 @@ class MLAPIClient:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
 
+    def _raise_for_response(self, r: requests.Response):
+        try:
+            err_body = r.json()
+            detail = err_body.get("detail", r.text)
+        except Exception:
+            detail = r.text
+        raise MLAPIError(r.status_code, detail, err_body if isinstance(detail, (dict, list)) else None)
+
     def _get(self, path: str, params: dict | None = None) -> dict[str, Any]:
         r = requests.get(f"{self.base_url}{path}", params=params, timeout=self.timeout)
-        r.raise_for_status()
+        if not r.ok:
+            self._raise_for_response(r)
         return r.json()
 
     def _post(self, path: str, body: dict | None = None) -> dict[str, Any]:
         r = requests.post(f"{self.base_url}{path}", json=body, timeout=self.timeout)
-        r.raise_for_status()
+        if not r.ok:
+            self._raise_for_response(r)
         return r.json()
 
     def health(self) -> dict[str, Any]:
@@ -46,27 +66,33 @@ class MLAPIClient:
             return self._post(f"/reload/{model_type}")
         return self._post("/reload")
 
+    def composition_model_tax_level(self, model: str | None = None) -> dict[str, Any]:
+        """GET /composition_model_tax_level — return the tax_level of a composition model.
+
+        Args:
+            model: Full composite key (e.g. ``"order_composition_rf"``) or short
+                   variant (e.g. ``"rf"``). Omit to list all composition models.
+        """
+        return self._get("/composition_model_tax_level", params={"model": model} if model else None)
+
     def predict_recall_cutoff(
         self,
         rows: list[dict[str, Any]],
-        model: str = "gp_clf",
-        tax_level: str = "order",
+        model: str = "order_recall_gp_clf",
         target_recall: float | None = None,
         confidence: float | None = None,
     ) -> dict[str, Any]:
         """POST /predict_recall_cutoff_from_table — predict recall cutoff from raw table rows.
 
         Args:
-            rows: List of dicts with keys ``taxid``, ``total_uniq_reads``, ``best_match_is_best``.
-            model: Variant name (e.g. ``"gp_clf"``, ``"xgb_direct"``, ``"xgb_multi"``).
-            tax_level: Taxonomic level the model was trained on (e.g. ``"order"``, ``"family"``).
+            rows: List of dicts with keys ``taxid``, ``total_uniq_reads``, ``order``, ``family``.
+            model: Full composite key from ``GET /models`` (e.g. ``"order_recall_gp_clf"``).
             target_recall: Optional target recall threshold.
             confidence: Optional confidence level for probability-guided cutoff.
         """
         body: dict[str, Any] = {
             "model": model,
             "rows": rows,
-            "tax_level": tax_level,
         }
         if target_recall is not None:
             body["target_recall"] = target_recall
