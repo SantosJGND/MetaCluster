@@ -30,7 +30,6 @@ are taken from ``training_results_cache.parquet``.
 """
 
 import argparse
-import joblib
 import warnings
 
 import numpy as np
@@ -172,7 +171,10 @@ print("1. DATA LOADING")
 print("=" * 60)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent))
-from metagenomics_utils.overlap_manager.feature_transformer import RecallFeatureTransformer
+
+from deployment.model_evaluation.analysis_scripts.predictor_inputs import (
+    reconstruct_recall_feature_frame,
+)
 
 if _args.analysis_output_filepath is None:
     raise SystemExit(
@@ -182,56 +184,19 @@ if _args.analysis_output_filepath is None:
 
 cache_dir = Path(_args.analysis_output_filepath) / "models" / "cache"
 
-recall_cache_path = cache_dir / "recall_matrices_cache.joblib"
-taxids_cache_path = cache_dir / "taxids_to_use_cache.parquet"
-training_results_path = cache_dir / "training_results_cache.parquet"
-
-for _p in (recall_cache_path, taxids_cache_path, training_results_path):
-    if not _p.exists():
-        raise FileNotFoundError(
-            f"Cache file not found: {_p}. Point --analysis_output_filepath at the "
-            "evaluation pipeline output (must contain models/cache/)."
-        )
-
-# Raw per-dataset m_stats matrices + reference taxonomy schema (same sources
-# RecallModeller.fit() consumes).
-matrices = joblib.load(recall_cache_path)
-taxids_df = pd.read_parquet(taxids_cache_path)
-
-if not matrices:
-    raise SystemExit("ERROR: recall_matrices_cache.joblib contains no training matrices.")
-
-print(f"Loaded {len(matrices)} recall matrices from {recall_cache_path.name}")
-
-# Reconstruct the recall feature matrix exactly as the production pipeline does.
 if _args.data_set_divide < N_ACTIVE_DIVISIONS:
     raise SystemExit(
         f"ERROR: --data_set_divide ({_args.data_set_divide}) < N_ACTIVE_DIVISIONS "
         f"({N_ACTIVE_DIVISIONS}). Must produce at least {N_ACTIVE_DIVISIONS} divisions."
     )
 
-transformer = RecallFeatureTransformer(
-    tax_level=_args.tax_level,
+# Reconstruct the recall feature matrix exactly as the production pipeline does.
+training_data = reconstruct_recall_feature_frame(
+    cache_dir,
     data_set_divide=_args.data_set_divide,
+    tax_level=_args.tax_level,
     sort_strategy=_args.recall_sort_strategy,
 )
-transformer.fit(taxids_to_use=taxids_df)
-rows = [transformer.transform(m) for m in matrices]
-training_data = pd.concat(rows, ignore_index=True)
-
-# Dataset-name alignment for N-taxid augmentation. Derive from the training
-# traversal cache; align positionally to the matrix order. Fall back to
-# positional names with a warning if counts mismatch.
-train_names_df = pd.read_parquet(training_results_path)
-ds_names = train_names_df["data_set"].unique() if "data_set" in train_names_df.columns else []
-if len(ds_names) == len(matrices):
-    training_data["data_set"] = list(ds_names)
-else:
-    training_data["data_set"] = [f"dataset_{i:04d}" for i in range(len(matrices))]
-    print(
-        f"  WARNING: cache dataset-name count ({len(ds_names)}) != matrices "
-        f"({len(matrices)}); using positional names. N-taxid augmentation may misalign."
-    )
 
 print(f"Training data loaded with shape: {training_data.shape}")
 

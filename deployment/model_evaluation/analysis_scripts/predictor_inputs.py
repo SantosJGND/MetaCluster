@@ -4,13 +4,16 @@ Shared data-loading helpers for input-target prediction scripts.
 Provides:
   - _get_raw_m_stats_matrix   — load raw leaf stats for one dataset
   - _load_input_summary       — load ground-truth input for one dataset
+  - reconstruct_recall_feature_frame — rebuild recall feature matrix from a model cache dir
   - collect_training_data     — assemble features, count-target, comp-target
 """
 
 import logging
 import os
+import warnings
 from pathlib import Path
 
+import joblib
 import pandas as pd
 
 from deployment.model_evaluation.config import EvaluatorConfig
@@ -31,6 +34,91 @@ STAT_FEATURES = [
     "max_uniq_reads",
     "total_uniq_reads",
 ]
+
+RECALL_DIVISIONS = 20
+
+RECALL_CACHE_FILES = (
+    "recall_matrices_cache.joblib",
+    "taxids_to_use_cache.parquet",
+    "training_results_cache.parquet",
+)
+
+
+def reconstruct_recall_feature_frame(
+    cache_dir,
+    data_set_divide: int = 20,
+    tax_level: str = "order",
+    sort_strategy: str = "reads",
+) -> pd.DataFrame:
+    """
+    Rebuild the recall feature matrix from an evaluation model cache directory.
+
+    The current pipeline stores raw per-dataset m_stats matrices in
+    ``models/cache/recall_matrices_cache.joblib`` (not the older
+    ``recall_results_cache.parquet``). This helper reconstructs the feature
+    vectors exactly as ``RecallModeller.fit()`` does via
+    ``RecallFeatureTransformer``, producing columns ``index_recall_1..N``,
+    ``last_best_match_relindex``, the 6 stat features, and taxonomy
+    proportions, plus a ``data_set`` column for N-taxid augmentation.
+
+    Parameters
+    ----------
+    cache_dir : str | Path
+        The model cache directory (e.g. ``<analysis>/models/cache``).
+    data_set_divide : int
+        Number of recall divisions (produces ``index_recall_1..N``; must be
+        at least the active division count used downstream).
+    tax_level : str
+        Taxonomic level for composition features.
+    sort_strategy : str
+        Sort strategy for ``RecallFeatureTransformer``.
+
+    Returns
+    -------
+    pd.DataFrame
+        Reconstructed feature + target matrix, one row per training dataset,
+        with a ``data_set`` column.
+    """
+    cache_dir = Path(cache_dir)
+    for fname in RECALL_CACHE_FILES:
+        if not (cache_dir / fname).exists():
+            raise FileNotFoundError(
+                f"Cache file not found: {cache_dir / fname}. Expected an evaluation model "
+                f"cache directory containing {', '.join(RECALL_CACHE_FILES)}."
+            )
+
+    matrices = joblib.load(cache_dir / "recall_matrices_cache.joblib")
+    taxids_df = pd.read_parquet(cache_dir / "taxids_to_use_cache.parquet")
+
+    if not matrices:
+        raise ValueError("recall_matrices_cache.joblib contains no training matrices.")
+
+    transformer = RecallFeatureTransformer(
+        tax_level=tax_level,
+        data_set_divide=data_set_divide,
+        sort_strategy=sort_strategy,
+    )
+    transformer.fit(taxids_to_use=taxids_df)
+    rows = [transformer.transform(m) for m in matrices]
+    frame = pd.concat(rows, ignore_index=True)
+
+    train_names_df = pd.read_parquet(cache_dir / "training_results_cache.parquet")
+    ds_names = (
+        train_names_df["data_set"].unique()
+        if "data_set" in train_names_df.columns
+        else []
+    )
+    if len(ds_names) == len(matrices):
+        frame["data_set"] = list(ds_names)
+    else:
+        frame["data_set"] = [f"dataset_{i:04d}" for i in range(len(matrices))]
+        warnings.warn(
+            f"Cache dataset-name count ({len(ds_names)}) != matrices ({len(matrices)}); "
+            "using positional dataset names. N-taxid augmentation may misalign.",
+            stacklevel=2,
+        )
+
+    return frame
 
 
 def _get_raw_m_stats_matrix(
@@ -117,8 +205,10 @@ def collect_training_data(
     Assemble feature/target matrices for both prediction tasks.
 
     Two modes:
-      1. *From cache* — if ``recall_cache_path`` points to a valid
-         ``recall_results_cache.parquet`` pre-computed features are reused.
+      1. *From cache* — if ``recall_cache_path`` points to a model cache
+         directory (``<analysis>/models/cache``) or an existing
+         ``recall_results_cache.parquet``, pre-computed features are reused
+         (a cache dir is reconstructed via ``reconstruct_recall_feature_frame``).
       2. *From study* — loads raw m_stats matrices from study output and
          runs ``RecallFeatureTransformer`` per dataset.
 
@@ -150,8 +240,18 @@ def collect_training_data(
     use_cache = recall_cache_path and Path(recall_cache_path).exists()
 
     if use_cache:
-        logger.info("Loading pre-computed features from cache: %s", recall_cache_path)
-        cache = pd.read_parquet(recall_cache_path)
+        cache_path = Path(recall_cache_path)
+        if cache_path.is_dir():
+            logger.info("Loading pre-computed features from cache dir: %s", cache_path)
+            cache = reconstruct_recall_feature_frame(
+                cache_path,
+                data_set_divide=RECALL_DIVISIONS,
+                tax_level=config.tax_level,
+                sort_strategy=sort_strategy,
+            )
+        else:
+            logger.info("Loading pre-computed features from cache: %s", cache_path)
+            cache = pd.read_parquet(cache_path)
         cache_datasets = set(cache["data_set"].unique())
 
         train_in_cache = all_train_set & cache_datasets

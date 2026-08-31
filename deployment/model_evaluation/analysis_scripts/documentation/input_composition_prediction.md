@@ -26,14 +26,20 @@ Two parallel tasks:
 
 Two modes, controlled by `--recall_cache`:
 
-**1. From cache** (`--recall_cache` provided): reads pre-computed features from
-`recall_results_cache.parquet` (6 stat columns + taxonomy proportions from the
-intersection with `ref_taxa`). Targets are computed from the input summary TSVs
-on disk.
+**1. From cache** (`--recall_cache` provided): reads pre-computed features.
+`--recall_cache` may point to either:
+  - a **model cache directory** (e.g. `<analysis>/models/cache`): the recall
+    feature matrix is reconstructed from `recall_matrices_cache.joblib` +
+    `taxids_to_use_cache.parquet` via `RecallFeatureTransformer` (see
+    `predictor_inputs.reconstruct_recall_feature_frame`), or
+  - an existing legacy `recall_results_cache.parquet`.
 
-**2. From study** (no cache): loads raw m_stats matrices per dataset via
-`OverlapManager`, transforms with `RecallFeatureTransformer`, computes targets
-from input summaries.
+  Columns are the 6 stat features + taxonomy proportions from the intersection
+  with `ref_taxa`. Targets are computed from the input summary TSVs on disk.
+
+**2. From study** (no cache / non-existent cache): loads raw m_stats matrices
+per dataset via `OverlapManager`, transforms with `RecallFeatureTransformer`,
+computes targets from input summaries.
 
 ## Features
 
@@ -89,7 +95,7 @@ are derived from the `taxids_to_use` plan via `get_subset_composition_counts()`.
 | `--tax_level` | No | `family` | Taxonomic level for composition features |
 | `--data_set_divide` | No | `16` | Number of recall divisions |
 | `--max_training` | No | — | Max training datasets to use |
-| `--recall_cache` | No | — | Path to recall_results_cache.parquet |
+| `--recall_cache` | No | — | Path to a model cache dir (`<analysis>/models/cache`) or existing `recall_results_cache.parquet` |
 | `--verbose` | No | false | Verbose logging |
 
 ## Example
@@ -100,7 +106,8 @@ python deployment/model_evaluation/analysis_scripts/input_composition_prediction
     --taxid_plan_filepath /path/to/taxid_plan.tsv \
     --analysis_output_filepath /path/to/output \
     --output_dir composition_prediction \
-    --tax_level family
+    --tax_level family \
+    --recall_cache /path/to/output/models/cache
 ```
 
 ## Outputs
@@ -215,7 +222,7 @@ The predicted N-taxid count is used as an additional feature in
 ```bash
 python last_tp_division_prediction_second.py \
     --study_output_filepath /path/to/study \
-    --input_cache /path/to/recall_results_cache.parquet \
+    --analysis_output_filepath /path/to/evaluation/analysis \
     --output_dir /path/to/outputs
 ```
 
