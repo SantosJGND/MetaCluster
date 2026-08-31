@@ -10,8 +10,11 @@ Given statistical and taxonomic features of a dataset, predict at which percenti
 
 | Argument | Required | Default | Description |
 |---|---|---|---|
+| `--analysis_output_filepath` | Yes | — | Evaluation analysis output directory; the model cache is derived from `<analysis_output>/models/cache/` |
 | `--output_dir` | No | `last_tp_division_outputs` | Output directory for results |
-| `--input_cache` | No | `recall_results_cache.parquet` | Path to recall results cache parquet |
+| `--data_set_divide` | No | `20` | Number of recall divisions (produces `index_recall_1..N`; must be ≥ 16) |
+| `--recall_sort_strategy` | No | `reads` | Sort strategy for `RecallFeatureTransformer` |
+| `--tax_level` | No | `order` | Taxonomic level for composition features |
 | `--study_output_filepath` | No | — | Study output directory (enables N-taxid augmentation) |
 
 When `--study_output_filepath` is provided, the script additionally trains an XGBoost regressor to predict the number of unique input taxids (`n_taxids_true`) and appends this prediction as an extra feature for all 13 models.
@@ -21,21 +24,36 @@ When `--study_output_filepath` is provided, the script additionally trains an XG
 ```bash
 # Without N-taxid augmentation
 python deployment/model_evaluation/analysis_scripts/last_tp_division_prediction_second.py \
-    --output_dir /path/to/last_tp_division_outputs \
-    --input_cache /path/to/recall_results_cache.parquet
+    --analysis_output_filepath /path/to/evaluation_output \
+    --output_dir /path/to/last_tp_division_outputs
 
 # With N-taxid augmentation
 python deployment/model_evaluation/analysis_scripts/last_tp_division_prediction_second.py \
+    --analysis_output_filepath /path/to/evaluation_output \
     --study_output_filepath /path/to/study \
-    --input_cache /path/to/recall_results_cache.parquet \
     --output_dir /path/to/outputs
 ```
+
+> **Note:** `--data_set_divide` is not strictly inferable from the cache (the cache stores
+> raw pre-division m_stats matrices; `config_hash.txt` is hashed). It defaults to `20` to
+> match the current up-to-date pipeline outputs. Override if your cache was built with a
+> different value — the script errors out if `data_set_divide < 16` (active divisions).
 
 ## Methods
 
 ### Dataset
 
-Training data is sourced from the GPCLF model cache (`recall_results_cache.parquet`), produced by the evaluation pipeline's recall-modelling step. The raw dataset comprises 933 samples with 20 recall divisions (`index_recall_1`…`index_recall_20`), 5 statistical features (`counts_kurtosis`, `counts_skewness`, `tax_diversity_shannon`, `max_uniq_reads`, `total_uniq_reads`), 16 taxonomy (family-level) proportion columns, `last_best_match_relindex`, and metadata.
+Training data is derived from the evaluation pipeline's model cache directory
+(`<analysis_output>/models/cache/`). The recorded `recall_matrices_cache.joblib`
+(raw m_stats matrix per training dataset) is transformed via
+`RecallFeatureTransformer` (the same reconstruction `RecallModeller.fit()` performs),
+combined with `taxids_to_use_cache.parquet` for the reference taxonomy schema. This
+reconstructs 20 recall divisions (`index_recall_1`…`index_recall_20`), 5 statistical
+features (`counts_kurtosis`, `counts_skewness`, `tax_diversity_shannon`,
+`max_uniq_reads`, `total_uniq_reads`), 16 taxonomy (order-level) proportion columns,
+`last_best_match_relindex`, and metadata. Dataset names for N-taxid augmentation come
+from `training_results_cache.parquet` (aligned positionally to the matrices; a count
+mismatch triggers positional fallback names with a warning).
 
 Samples where `last_best_match_relindex ∈ {0, 1}` (degenerate edge cases) are removed, along with samples whose recall never exceeds 0 across all divisions. This yields 787 samples (630 train, 157 test).
 

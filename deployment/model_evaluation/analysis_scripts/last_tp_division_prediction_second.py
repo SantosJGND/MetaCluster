@@ -19,9 +19,18 @@ Compares 4 decision approaches × 13 model variants:
     - GPCLFThreshold (production baseline)
 
 With configurable asymmetric loss (over- vs. under-prediction penalty).
+
+Data source: the evaluation pipeline's model cache directory
+(``{analysis_output}/models/cache/``). The recall feature matrix is
+reconstructed from ``recall_matrices_cache.joblib`` (raw m_stats per
+training dataset) + ``taxids_to_use_cache.parquet`` via
+``RecallFeatureTransformer`` — the same reconstruction the production
+``RecallModeller.fit()`` performs. Dataset names for N-taxid augmentation
+are taken from ``training_results_cache.parquet``.
 """
 
 import argparse
+import joblib
 import warnings
 
 import numpy as np
@@ -69,12 +78,30 @@ def get_args():
         help="Output directory for results (default: last_tp_division_outputs)",
     )
     parser.add_argument(
-        "--input_cache",
+        "--analysis_output_filepath",
         type=str,
-        default="/home/bioinf/Desktop/INSA/Projectos/CLUSTER_EVAL/"
-        "study/analysis/virus/filter_gp_clf_family/models/"
-        "cache/recall_results_cache.parquet",
-        help="Path to recall results cache parquet file",
+        default=None,
+        help="Path to the evaluation analysis output directory. The model cache is "
+        "derived from <analysis_output>/models/cache/ (required)",
+    )
+    parser.add_argument(
+        "--data_set_divide",
+        type=int,
+        default=20,
+        help="Number of recall divisions (produces index_recall_1..N columns; default: 20)",
+    )
+    parser.add_argument(
+        "--recall_sort_strategy",
+        type=str,
+        default="reads",
+        help="Sort strategy for RecallFeatureTransformer: 'reads', 'taxid_roundrobin', "
+        "'rarity_boost', 'tax_level_stratified' (default: reads)",
+    )
+    parser.add_argument(
+        "--tax_level",
+        type=str,
+        default="order",
+        help="Taxonomic level for composition features (default: order)",
     )
     parser.add_argument(
         "--study_output_filepath",
@@ -138,15 +165,74 @@ def _load_n_taxid_for_dataset(data_set_name, study_output_filepath):
 SAVE_DIR.mkdir(parents=True, exist_ok=True)
 
 # ═══════════════════════════════════════════════════════════════
-# 1. DATA LOADING
+# 1. DATA LOADING (from evaluation pipeline model cache)
 # ═══════════════════════════════════════════════════════════════
 print("=" * 60)
 print("1. DATA LOADING")
 print("=" * 60)
 
-trainning_data_cache = Path(_args.input_cache)
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent))
+from metagenomics_utils.overlap_manager.feature_transformer import RecallFeatureTransformer
 
-training_data = pd.read_parquet(trainning_data_cache)
+if _args.analysis_output_filepath is None:
+    raise SystemExit(
+        "ERROR: --analysis_output_filepath is required (evaluation analysis output dir; "
+        "its models/cache/ holds the training data)."
+    )
+
+cache_dir = Path(_args.analysis_output_filepath) / "models" / "cache"
+
+recall_cache_path = cache_dir / "recall_matrices_cache.joblib"
+taxids_cache_path = cache_dir / "taxids_to_use_cache.parquet"
+training_results_path = cache_dir / "training_results_cache.parquet"
+
+for _p in (recall_cache_path, taxids_cache_path, training_results_path):
+    if not _p.exists():
+        raise FileNotFoundError(
+            f"Cache file not found: {_p}. Point --analysis_output_filepath at the "
+            "evaluation pipeline output (must contain models/cache/)."
+        )
+
+# Raw per-dataset m_stats matrices + reference taxonomy schema (same sources
+# RecallModeller.fit() consumes).
+matrices = joblib.load(recall_cache_path)
+taxids_df = pd.read_parquet(taxids_cache_path)
+
+if not matrices:
+    raise SystemExit("ERROR: recall_matrices_cache.joblib contains no training matrices.")
+
+print(f"Loaded {len(matrices)} recall matrices from {recall_cache_path.name}")
+
+# Reconstruct the recall feature matrix exactly as the production pipeline does.
+if _args.data_set_divide < N_ACTIVE_DIVISIONS:
+    raise SystemExit(
+        f"ERROR: --data_set_divide ({_args.data_set_divide}) < N_ACTIVE_DIVISIONS "
+        f"({N_ACTIVE_DIVISIONS}). Must produce at least {N_ACTIVE_DIVISIONS} divisions."
+    )
+
+transformer = RecallFeatureTransformer(
+    tax_level=_args.tax_level,
+    data_set_divide=_args.data_set_divide,
+    sort_strategy=_args.recall_sort_strategy,
+)
+transformer.fit(taxids_to_use=taxids_df)
+rows = [transformer.transform(m) for m in matrices]
+training_data = pd.concat(rows, ignore_index=True)
+
+# Dataset-name alignment for N-taxid augmentation. Derive from the training
+# traversal cache; align positionally to the matrix order. Fall back to
+# positional names with a warning if counts mismatch.
+train_names_df = pd.read_parquet(training_results_path)
+ds_names = train_names_df["data_set"].unique() if "data_set" in train_names_df.columns else []
+if len(ds_names) == len(matrices):
+    training_data["data_set"] = list(ds_names)
+else:
+    training_data["data_set"] = [f"dataset_{i:04d}" for i in range(len(matrices))]
+    print(
+        f"  WARNING: cache dataset-name count ({len(ds_names)}) != matrices "
+        f"({len(matrices)}); using positional names. N-taxid augmentation may misalign."
+    )
+
 print(f"Training data loaded with shape: {training_data.shape}")
 
 y_columns = [x for x in training_data.columns if x.startswith("index_recall_")]
