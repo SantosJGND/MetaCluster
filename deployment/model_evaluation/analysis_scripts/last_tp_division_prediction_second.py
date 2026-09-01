@@ -150,9 +150,10 @@ def model_file_safe(name):
 def _load_n_taxid_for_dataset(data_set_name, study_output_filepath):
     """Load number of unique input taxids for a single dataset."""
     input_path = os.path.join(
-        str(study_output_filepath), data_set_name, "input", f"{data_set_name}_plan.tsv"
+        str(study_output_filepath), f"{data_set_name}_plan", "input", f"{data_set_name}_plan.tsv"
     )
     print(f"  Loading N-taxid for dataset '{data_set_name}' from {input_path}")
+    print(f"  File exists: {os.path.exists(input_path)}")
     if not os.path.exists(input_path):
         return None
     try:
