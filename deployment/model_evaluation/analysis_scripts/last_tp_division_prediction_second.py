@@ -236,6 +236,7 @@ else:
 training_data = training_data[
     (training_data["last_best_match_relindex"] > 0.0) & (training_data["last_best_match_relindex"] < 1.0)
 ]
+trainning_data = training_data.dropna(subset=y_columns + [y_second])
 
 X = training_data[features].copy()
 # for ftax in taxonomy_features:
@@ -255,7 +256,11 @@ print(f"X shape: {X.shape}, Y shape: {Y.shape}")
 X_train, X_test, y_train, y_test = train_test_split(X, Y, test_size=0.2, random_state=random_state)
 scaler = StandardScaler()
 X_train_scaled = scaler.fit_transform(X_train)
+X_train_scaled = np.clip(X_train_scaled, -5.0, 5.0)
+X_train_scaled = np.nan_to_num(X_train_scaled, nan=0.0, posinf=5.0, neginf=-5.0)
 X_test_scaled = scaler.transform(X_test)
+X_test_scaled = np.clip(X_test_scaled, -5.0, 5.0)
+X_test_scaled = np.nan_to_num(X_test_scaled, nan=0.0, posinf=5.0, neginf=-5.0)
 
 print(f"Train: {X_train_scaled.shape[0]} samples, Test: {X_test_scaled.shape[0]} samples")
 
