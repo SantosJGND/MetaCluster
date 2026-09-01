@@ -34,6 +34,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 from deployment.model_evaluation.metrics import compute_recall
+from deployment.model_evaluation.result_models import write_pipeline_metadata
 from metagenomics_utils.ncbi_tools import NCBITaxonomistWrapper
 from metagenomics_utils.overlap_manager import OverlapManager
 from metagenomics_utils.overlap_manager.node_stats import get_m_stats_matrix
@@ -273,7 +274,7 @@ def process_dataset(
 
     if m_stats.empty:
         logger.warning(f"{dataset}: m-stats matrix is empty")
-        return None, None, None, None
+        return None, None, None, None, None
 
     m_stats = m_stats.reset_index()
 
@@ -900,10 +901,19 @@ def main():
     logger.info(f"NCBI DB: {ncbi_db}")
     logger.info(f"Output dir: {output_dir}")
 
+    all_folders = sorted(
+        f for f in os.listdir(study_output) if os.path.isdir(os.path.join(study_output, f))
+    )
+    total_attempted = len(all_folders)
+
     datasets = discover_datasets(study_output)
     if not datasets:
         logger.error("No valid datasets found")
         sys.exit(1)
+
+    study_gaps = [f for f in all_folders if f not in datasets]
+    if study_gaps:
+        logger.warning(f"{len(study_gaps)} folders missing required files (study gaps): {', '.join(study_gaps[:10])}")
 
     logger.info("Initializing NCBI TaxonomistWrapper and resolving lineages...")
     ncbi_wrapper = NCBITaxonomistWrapper(db=ncbi_db)
@@ -915,8 +925,9 @@ def main():
     tp_data_records = []
     classifier_hit_records = []
     recall_records = []
-    processed = 0
-    skipped = 0
+    skipped_names = []
+    failed_names = []
+    failed_messages = []
     explanatory = args.explanatory
 
     for ds in datasets:
@@ -935,14 +946,34 @@ def main():
                 tp_data_records.extend(result[2])
                 classifier_hit_records.extend(result[3])
                 recall_records.extend(result[4])
-                processed += 1
             else:
-                skipped += 1
+                skipped_names.append(ds)
         except Exception as e:
             logger.warning(f"Error processing {ds}: {e}")
-            skipped += 1
+            failed_names.append(ds)
+            failed_messages.append(str(e))
 
-    logger.info(f"Processed: {processed}, Skipped: {skipped}")
+    extracted = len(per_dataset_records)
+    skipped = len(skipped_names)
+    failed = len(failed_names)
+
+    logger.info(f"Total attempted: {total_attempted}, Extracted: {extracted}, Skipped: {skipped}, Failed: {failed}, Study gaps: {len(study_gaps)}")
+
+    metadata_rows = [
+        ("total_attempted", total_attempted),
+        ("extracted", extracted),
+        ("dropped", total_attempted - extracted),
+        ("failed", failed),
+        ("skipped", skipped),
+    ]
+    if skipped_names:
+        metadata_rows.append(("skipped_datasets", ";".join(skipped_names)))
+    if failed_messages:
+        metadata_rows.append(("failed_datasets", ";".join(failed_messages)))
+    if study_gaps:
+        metadata_rows.append(("study_gaps", len(study_gaps)))
+        metadata_rows.append(("study_gap_datasets", ";".join(study_gaps)))
+    write_pipeline_metadata(metadata_rows, output_dir)
 
     if not per_dataset_records:
         logger.error("No datasets were successfully processed")

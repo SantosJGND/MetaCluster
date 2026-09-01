@@ -197,7 +197,9 @@ class BatchEvaluator:
                 "successful": 0,
                 "failed": len(errors),
                 "skipped": skipped,
+                "skipped_count": len(skipped),
                 "errors": [str(e) for e in errors],
+                "failed_datasets": ";".join(str(e) for e in errors),
             }
             return result
 
@@ -294,7 +296,9 @@ class BatchEvaluator:
                     "successful": len(results),
                     "failed": len(errors),
                     "skipped": skipped,
+                    "skipped_count": len(skipped),
                     "errors": [str(e) for e in errors],
+                    "failed_datasets": ";".join(str(e) for e in errors),
                 },
             )
 

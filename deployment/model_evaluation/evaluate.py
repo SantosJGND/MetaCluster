@@ -331,6 +331,12 @@ def main(args):
         f"{len(meta.get('skipped', []))} skipped"
     )
 
+    if meta.get("successful", 0) != results.get_dataset_count():
+        logger.warning(
+            f"Metadata 'successful' ({meta.get('successful')}) does not match "
+            f"summary result rows ({results.get_dataset_count()})"
+        )
+
     logger.info("Saving results...")
     if config.use_cache is False:
         trainer._stats_matrices.to_csv(

@@ -35,12 +35,34 @@ JSON Schema:
 
 import json
 import logging
+import os
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 
 import pandas as pd
 
 logger = logging.getLogger(__name__)
+
+
+def write_pipeline_metadata(rows, output_dir: str, filename: str = "pipeline_metadata.tsv") -> str:
+    """Write pipeline/cohort metadata as a two-column TSV, atomically.
+
+    Args:
+        rows: Iterable of (metric, value) tuples.
+        output_dir: Directory in which to write the file.
+        filename: Output filename (default: pipeline_metadata.tsv).
+
+    Returns:
+        Path to the written file.
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    df = pd.DataFrame(rows, columns=["metric", "value"])
+    path = os.path.join(output_dir, filename)
+    tmp_path = f"{path}.tmp.{os.getpid()}"
+    df.to_csv(tmp_path, sep="\t", index=False)
+    os.replace(tmp_path, path)
+    logger.info(f"Saved pipeline metadata to {path}")
+    return path
 
 
 @dataclass
@@ -336,13 +358,14 @@ class BatchEvaluationResult:
         Writes pipeline_metadata.tsv with columns: metric, value.
         Includes dataset counts and names of skipped/failed datasets.
         """
-        import os
-
         rows = [
             ("total_datasets", self.metadata.get("total_datasets", 0)),
             ("successful", self.metadata.get("successful", 0)),
             ("failed", self.metadata.get("failed", 0)),
-            ("skipped_count", len(self.metadata.get("skipped", []))),
+            (
+                "skipped_count",
+                self.metadata.get("skipped_count", len(self.metadata.get("skipped", []))),
+            ),
         ]
 
         skipped = self.metadata.get("skipped", [])
@@ -350,13 +373,11 @@ class BatchEvaluationResult:
             rows.append(("skipped_datasets", ";".join(skipped)))
 
         errors = self.metadata.get("errors", [])
-        if errors:
-            rows.append(("failed_datasets", ";".join(errors)))
+        if errors or self.metadata.get("failed_datasets"):
+            failed_datasets = self.metadata.get("failed_datasets") or ";".join(errors)
+            rows.append(("failed_datasets", failed_datasets))
 
-        df = pd.DataFrame(rows, columns=["metric", "value"])
-        path = os.path.join(output_dir, "pipeline_metadata.tsv")
-        df.to_csv(path, sep="\t", index=False)
-        logger.info(f"Saved pipeline metadata to {path}")
+        write_pipeline_metadata(rows, output_dir)
 
 
 def create_empty_result() -> BatchEvaluationResult:

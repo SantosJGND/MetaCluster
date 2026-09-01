@@ -163,6 +163,12 @@ visualizer.plot_all(results)
 | `models/` | Trained model files |
 | `models/cache/` | Cached training data (parquet files) |
 
+> The EDA producer (`analysis_data_extractor.py`) emits the same cohort metadata
+> schema (`pipeline_metadata.tsv`: `total_attempted`, `extracted`, `dropped`,
+> `failed`, `skipped`, plus name/message lists and `study_gaps`) scoped to the full
+> study cohort in its output directory. `evaluate.py`'s TSV + `evaluation_results.json`
+> report identical `successful`/`failed`/`skipped_count`.
+
 ### Visualizations (PNG)
 
 | Plot | Description |

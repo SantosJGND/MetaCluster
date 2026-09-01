@@ -182,6 +182,31 @@ Pipeline run summary. Two columns: `metric`, `value`.
 | `skipped_datasets` | Semicolon-separated list of skipped dataset names (omitted if none) |
 | `failed_datasets` | Semicolon-separated list of error messages (omitted if none) |
 
+The same two-column `metric`/`value` schema is emitted to
+`evaluation_results.json`→`metadata` (`skipped_count`, `failed_datasets` included),
+so the TSV and JSON serializations always agree.
+
+### EDA Cohort Metadata — `analysis_data_extractor.py`
+
+The EDA producer (`deployment/model_evaluation/analysis_data_extractor.py`) writes a
+cohort-scoped `pipeline_metadata.tsv` in the same output directory as
+`per_dataset_metrics.tsv` (e.g. `<domain>_eda/pipeline_metadata.tsv`). This logs the
+full study cohort, so downstream statistics can state their denominator honestly.
+
+| Metric | Description |
+|--------|-------------|
+| `total_attempted` | All dataset folders scanned from `--study-output` |
+| `extracted` | Rows written to `per_dataset_metrics.tsv` (= successful) |
+| `dropped` | `total_attempted − extracted` |
+| `failed` | Datasets that raised an exception during extraction |
+| `skipped` | Datasets with no usable m-stats / no mapped reads (recall 0) |
+| `skipped_datasets` | Semicolon-separated names (omitted if none) |
+| `failed_datasets` | Semicolon-separated error messages (omitted if none) |
+| `study_gaps` | Folders missing required files (input/clustering/matched); not attempted |
+| `study_gap_datasets` | Semicolon-separated names (omitted if none) |
+
+Invariant: `dropped == skipped + failed + study_gaps`.
+
 ### `test_datasets_input_df.tsv`
 
 Merged input summary for all test datasets. Columns: `sample`, `taxid`, `reads`, `mutation_rate`, `order`, `family`, `genus`, `data_set`, `found_in_recall_filter`, `found_in_fixed_filter`.
