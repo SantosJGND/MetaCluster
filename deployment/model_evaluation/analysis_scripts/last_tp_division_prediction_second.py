@@ -230,6 +230,8 @@ else:
 training_data = training_data[
     (training_data["last_best_match_relindex"] > 0.0) & (training_data["last_best_match_relindex"] < 1.0)
 ]
+print(f"trainning data with n_taxids_true NA: {training_data['n_taxids_true'].isna().sum()} samples")
+training_data = training_data.dropna(subset=["n_taxids_true"])
 X = training_data[features].copy()
 # for ftax in taxonomy_features:
 #    X[ftax] = (X[ftax] > 0).astype(float)
