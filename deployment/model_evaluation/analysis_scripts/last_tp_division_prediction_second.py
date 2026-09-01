@@ -535,9 +535,12 @@ for split_name, y_df, X_df, X_scaled in [
 
 
 # X test missing data
+
+
 X_test_missing_mask = np.isnan(X_test_scaled).any(axis=1)
 print(f"  Test: {X_test_missing_mask.sum()} samples with missing data (NaN) in features out of {len(X_test_scaled)}")
 X_test_scaled = X_test_scaled[~X_test_missing_mask]
+X_test = X_test.iloc[~X_test_missing_mask]
 y_test = y_test.iloc[~X_test_missing_mask]
 
 # ═══════════════════════════════════════════════════════════════
