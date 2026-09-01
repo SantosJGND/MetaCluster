@@ -150,7 +150,7 @@ def model_file_safe(name):
 def _load_n_taxid_for_dataset(data_set_name, study_output_filepath):
     """Load number of unique input taxids for a single dataset."""
     input_path = os.path.join(
-        str(study_output_filepath), data_set_name, "input", f"{data_set_name}.tsv"
+        str(study_output_filepath), data_set_name, "input", f"{data_set_name}_plan.tsv"
     )
     if not os.path.exists(input_path):
         return None
@@ -198,6 +198,8 @@ training_data = reconstruct_recall_feature_frame(
     sort_strategy=_args.recall_sort_strategy,
 )
 
+print(training_data.head())
+
 print(f"Training data loaded with shape: {training_data.shape}")
 
 y_columns = [x for x in training_data.columns if x.startswith("index_recall_")]
@@ -221,6 +223,7 @@ if _args.study_output_filepath is not None:
         n_taxid_map[ds] = _load_n_taxid_for_dataset(ds, study_path)
     n_taxid_series = training_data["data_set"].map(n_taxid_map)
     n_missing = int(n_taxid_series.isna().sum())
+    print(f"  N-taxid: {n_missing}/{len(n_taxid_series)} missing values")
     if n_missing > 0:
         fill_val = n_taxid_series.median()
         n_taxid_series = n_taxid_series.fillna(fill_val)
@@ -265,6 +268,9 @@ print(f"Train: {X_train_scaled.shape[0]} samples, Test: {X_test_scaled.shape[0]}
 if _args.study_output_filepath is not None and "n_taxids_true" in training_data.columns:
     y_n_taxid_train = training_data.loc[X_train.index, "n_taxids_true"].values.astype(float)
     y_n_taxid_test = training_data.loc[X_test.index, "n_taxids_true"].values.astype(float)
+
+    print(f"\nTraining N-taxid predictor (XGBoost, log1p) on {len(y_n_taxid_train)} samples...")
+    print(y_n_taxid_train)
 
     y_n_train_log = np.log1p(y_n_taxid_train)
     y_n_test_log = np.log1p(y_n_taxid_test)
