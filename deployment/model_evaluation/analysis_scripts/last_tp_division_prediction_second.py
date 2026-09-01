@@ -534,6 +534,12 @@ for split_name, y_df, X_df, X_scaled in [
         print(f"  {split_name}: all {n_before} samples valid")
 
 
+# X test missing data
+X_test_missing_mask = np.isnan(X_test_scaled).any(axis=1)
+print(f"  Test: {X_test_missing_mask.sum()} samples with missing data (NaN) in features out of {len(X_test_scaled)}")
+X_test_scaled = X_test_scaled[~X_test_missing_mask]
+y_test = y_test.iloc[~X_test_missing_mask]
+
 # ═══════════════════════════════════════════════════════════════
 # 3. HURDLE MODEL CLASS
 # ═══════════════════════════════════════════════════════════════
@@ -1240,7 +1246,7 @@ for tau in TARGET_TAUS:
         print("\n--- 8c. Calibration scatter ---")
         # Standard models: GP-based + deterministic
         for mk in list(posterior.keys()) + list(deterministic_preds.keys()):
-            for approach in ["CLF", "Likelihood", "Direct"]:
+            for approach in ["CLF", "Likelihood",  "Direct"]:
                 sub = summary_df[
                     (summary_df["model"] == mk)
                     & (summary_df["approach"] == approach)
