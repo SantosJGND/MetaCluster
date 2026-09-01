@@ -152,8 +152,7 @@ def _load_n_taxid_for_dataset(data_set_name, study_output_filepath):
     input_path = os.path.join(
         str(study_output_filepath), f"{data_set_name}_plan", "input", f"{data_set_name}_plan.tsv"
     )
-    print(f"  Loading N-taxid for dataset '{data_set_name}' from {input_path}")
-    print(f"  File exists: {os.path.exists(input_path)}")
+
     if not os.path.exists(input_path):
         return None
     try:
@@ -262,7 +261,6 @@ if _args.study_output_filepath is not None and "n_taxids_true" in training_data.
     y_n_taxid_test = training_data.loc[X_test.index, "n_taxids_true"].values.astype(float)
 
     print(f"\nTraining N-taxid predictor (XGBoost, log1p) on {len(y_n_taxid_train)} samples...")
-    print(y_n_taxid_train)
 
     y_n_train_log = np.log1p(y_n_taxid_train)
     y_n_test_log = np.log1p(y_n_taxid_test)
@@ -271,8 +269,8 @@ if _args.study_output_filepath is not None and "n_taxids_true" in training_data.
     if invalid_mask.any():
         print(f"  Warning: {invalid_mask.sum()} invalid n_taxid_train values, replacing with median")
         print("Invalid values:", y_n_train_log[invalid_mask])
-        raise ValueError("Invalid n_taxid_train values detected. Please check the input data.")
-        #y_n_train_log[invalid_mask] = np.median(y_n_train_log[~invalid_mask])
+        y_n_train_log= y_n_train_log[~invalid_mask]
+        
 
     n_taxid_model = XGBRegressor(
         n_estimators=300, max_depth=6, learning_rate=0.1,
