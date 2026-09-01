@@ -218,20 +218,10 @@ print(f"Features ({n_features}): {len(stats_features)} stats + {len(taxonomy_fea
 N_TAXID_FEATURE = "n_taxids_pred"
 if _args.study_output_filepath is not None:
     study_path = Path(_args.study_output_filepath)
-    dataset_names = training_data["data_set"].unique()
-    n_taxid_map = {}
-    for ds in dataset_names:
-        n_taxid_map[ds] = _load_n_taxid_for_dataset(ds, study_path)
-    n_taxid_series = training_data["data_set"].map(n_taxid_map)
-    n_missing = int(n_taxid_series.isna().sum())
-    print(f"  N-taxid: {n_missing}/{len(n_taxid_series)} missing values")
-    if n_missing > 0:
-        fill_val = n_taxid_series.median()
-        n_taxid_series = n_taxid_series.fillna(fill_val)
-        print(f"  N-taxid: filled {n_missing} missing values with median ({fill_val:.0f})")
-    training_data["n_taxids_true"] = n_taxid_series.astype(float)
-    print(f"  N-taxid true: range [{n_taxid_series.min():.0f}–{n_taxid_series.max():.0f}], "
-          f"mean={n_taxid_series.mean():.1f}, median={n_taxid_series.median():.0f}")
+    dataset_names = training_data[["data_set"]].drop_duplicates()
+    dataset_names['n_taxids_true'] = dataset_names['data_set'].apply(lambda ds: _load_n_taxid_for_dataset(ds, study_path))
+    training_data = training_data.merge(dataset_names, on='data_set', how='left')
+
 else:
     print("  N-taxid: skipped (--study_output_filepath not provided)")
 
