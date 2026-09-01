@@ -152,6 +152,7 @@ def _load_n_taxid_for_dataset(data_set_name, study_output_filepath):
     input_path = os.path.join(
         str(study_output_filepath), data_set_name, "input", f"{data_set_name}_plan.tsv"
     )
+    print(f"  Loading N-taxid for dataset '{data_set_name}' from {input_path}")
     if not os.path.exists(input_path):
         return None
     try:
