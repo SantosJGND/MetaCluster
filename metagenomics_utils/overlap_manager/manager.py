@@ -141,6 +141,8 @@ class OverlapManager:
         self.original_m_stats_matrix = pd.DataFrame()
         self.m_stats_matrix = pd.DataFrame()
         self.node_leaves_cache: dict[str, list[str]] = {}
+        self._wp_values: np.ndarray | None = None
+        self._wp_index: list[str] | None = None
 
         if not skip_build and self.check_data_available():
             self.build()
@@ -338,7 +340,9 @@ class OverlapManager:
                 return
 
             proximity_matrix = 1 - distance_matrix
+            del distance_matrix
             weighted_proximity_matrix = self.weighted_matrix(proximity_matrix)
+            del proximity_matrix
             weighted_distance_matrix = 1 - weighted_proximity_matrix
 
             weighted_distance_matrix.to_csv(
@@ -348,7 +352,12 @@ class OverlapManager:
             symweighted_distance_matrix = self.matrix_symmetrize_mean(weighted_distance_matrix)
             self.distance_mat = symweighted_distance_matrix
 
-            self.njbio_from_distance_matrix(symweighted_distance_matrix)
+            # Cache weighted proximity values for recalculate_all_min_pairwise_dist()
+            self._wp_values = weighted_proximity_matrix.values
+            self._wp_index = list(weighted_proximity_matrix.index)
+            del weighted_proximity_matrix, weighted_distance_matrix, symweighted_distance_matrix
+
+            self.njbio_from_distance_matrix(self.distance_mat)
             self.all_nodes = list(self.tree.nodes())
             self.leaves = [n for n, d in self.tree.out_degree() if d == 0]
             self.root_nodes = [n for n, d in self.tree.in_degree() if d == 0]
@@ -438,11 +447,15 @@ class OverlapManager:
         if not os.path.exists(self.distance_matrix_filepath):
             return
 
-        distance_matrix = self.read_distance_matrix()
-        proximity_matrix = 1 - distance_matrix
-        weighted_proximity_matrix = self.weighted_matrix(proximity_matrix)
-        wp_values = weighted_proximity_matrix.values
-        index_arr = list(weighted_proximity_matrix.index)
+        if self._wp_values is not None and self._wp_index is not None:
+            wp_values = self._wp_values
+            index_arr = self._wp_index
+        else:
+            distance_matrix = self.read_distance_matrix()
+            proximity_matrix = 1 - distance_matrix
+            weighted_proximity_matrix = self.weighted_matrix(proximity_matrix)
+            wp_values = weighted_proximity_matrix.values
+            index_arr = list(weighted_proximity_matrix.index)
         index_to_pos = {name: i for i, name in enumerate(index_arr)}
 
         def calc_node_stats(node):

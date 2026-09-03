@@ -15,6 +15,7 @@ Usage:
 """
 
 import argparse
+import gc
 import logging
 import os
 import sys
@@ -261,7 +262,6 @@ def process_dataset(
     if not overlap_manager.leaves:
         logger.warning(f"{dataset}: OverlapManager has no leaves, skipping")
         return None, None, None, None, None
-    print("merged")
     m_stats = get_m_stats_matrix(
         dataset,
         study_output_filepath,
@@ -929,8 +929,48 @@ def main():
     failed_names = []
     failed_messages = []
     explanatory = args.explanatory
+    total_datasets = len(datasets)
 
-    for ds in datasets:
+    def _write_partial_metadata():
+        """Write whatever metadata we have so far — called on interrupt/signal."""
+        partial_extracted = len(per_dataset_records)
+        partial_skipped = len(skipped_names)
+        partial_failed = len(failed_names)
+        rows = [
+            ("total_attempted", total_attempted),
+            ("extracted", partial_extracted),
+            ("dropped", total_attempted - partial_extracted),
+            ("failed", partial_failed),
+            ("skipped", partial_skipped),
+        ]
+        if skipped_names:
+            rows.append(("skipped_datasets", ";".join(skipped_names)))
+        if failed_messages:
+            rows.append(("failed_datasets", ";".join(failed_messages)))
+        if study_gaps:
+            rows.append(("study_gaps", len(study_gaps)))
+            rows.append(("study_gap_datasets", ";".join(study_gaps)))
+        rows.append(("note", "partial — process interrupted before completion"))
+        write_pipeline_metadata(rows, output_dir)
+
+    import atexit
+    import signal
+
+    _original_sigint = signal.getsignal(signal.SIGINT)
+    _original_sigterm = signal.getsignal(signal.SIGTERM)
+
+    def _signal_handler(signum, frame):
+        logger.warning(f"Received signal {signum}, writing partial results before exit...")
+        _write_partial_metadata()
+        signal.signal(signal.SIGINT, _original_sigint)
+        signal.signal(signal.SIGTERM, _original_sigterm)
+        raise SystemExit(1)
+
+    signal.signal(signal.SIGINT, _signal_handler)
+    signal.signal(signal.SIGTERM, _signal_handler)
+    atexit.register(_write_partial_metadata)
+
+    for i, ds in enumerate(datasets, 1):
         try:
             result = process_dataset(
                 ds,
@@ -952,6 +992,18 @@ def main():
             logger.warning(f"Error processing {ds}: {e}")
             failed_names.append(ds)
             failed_messages.append(str(e))
+        finally:
+            gc.collect()
+
+        if i % 100 == 0 or i == total_datasets:
+            logger.info(
+                f"[{i}/{total_datasets}] Progress: extracted={len(per_dataset_records)}, "
+                f"skipped={len(skipped_names)}, failed={len(failed_names)}"
+            )
+
+    atexit.unregister(_write_partial_metadata)
+    signal.signal(signal.SIGINT, _original_sigint)
+    signal.signal(signal.SIGTERM, _original_sigterm)
 
     extracted = len(per_dataset_records)
     skipped = len(skipped_names)
@@ -973,6 +1025,7 @@ def main():
     if study_gaps:
         metadata_rows.append(("study_gaps", len(study_gaps)))
         metadata_rows.append(("study_gap_datasets", ";".join(study_gaps)))
+    
     write_pipeline_metadata(metadata_rows, output_dir)
 
     if not per_dataset_records:
