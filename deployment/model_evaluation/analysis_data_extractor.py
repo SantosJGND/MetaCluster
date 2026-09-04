@@ -996,7 +996,7 @@ def main():
         finally:
             gc.collect()
 
-        if i % 100 == 0 or i == total_datasets:
+        if i % 10 == 0 or i == total_datasets:
             rss_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
             logger.info(
                 f"[{i}/{total_datasets}] Progress: extracted={len(per_dataset_records)}, "

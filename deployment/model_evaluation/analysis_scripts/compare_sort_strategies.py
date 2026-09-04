@@ -101,7 +101,7 @@ def _collect_matrices(
         m = _get_raw_m_stats_matrix(name, config.study_output_filepath, ncbi_wrapper)
         if m is not None:
             matrices.append((name, m))
-        if i % 100 == 0 or i == total:
+        if i % 10 == 0 or i == total:
             rss_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
             logger.info(
                 "[%d/%d] Collected %d matrices so far (RSS: %.0f MB)",
