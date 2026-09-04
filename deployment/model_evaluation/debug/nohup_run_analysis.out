@@ -1,0 +1,235 @@
+(base) insafludockertest :: ~/TOOLS/MetaCluster ‹main*› » cat nohup_analysis_xgb_xgb_order.out                                                                                                          130 ↵
+nohup: ignoring input
+=== Phase 1: Two heaviest scripts in parallel ===
+[1/5] Sort comparison...
+[2/5] EDA + explanatory...
+Waiting for Phase 1 (PIDs: 2717394 2717395)...
+2026-09-04 11:49:09,879 - __main__ - INFO - ============================================================
+2026-09-04 11:49:09,879 - __main__ - INFO - Sort-strategy comparison sweep
+2026-09-04 11:49:09,880 - __main__ - INFO - ============================================================
+2026-09-04 11:49:09,880 - __main__ - INFO - Sort strategies: ['reads', 'taxid_roundrobin', 'rarity_boost', 'tax_level_stratified']
+2026-09-04 11:49:09,880 - __main__ - INFO - Recall models:  ['xgb', 'morf', 'direct_xgb', 'gp_clf', 'fixed_12_taxids']
+2026-09-04 11:49:09,880 - __main__ - INFO - Target recall:  1.00
+2026-09-04 11:49:09,880 - __main__ - INFO - Output dir:     /home/ddi/STUDIES/MetaCluster/analysis/compare_sort_strategies/sort_comparison
+2026-09-04 11:49:09,880 - __main__ - INFO - ============================================================
+2026-09-04 11:49:09,917 - __main__ - INFO - Loading data...
+2026-09-04 11:49:09,922 - deployment.model_evaluation.data_loader - INFO - Loaded taxid plan with 53 entries
+INFO: Study output: /home/ddi/STUDIES/MetaCluster/Sims/bacteria/filter_01/output_study
+INFO: NCBI DB: /home/ddi/STUDIES/MetaCluster/Sims/bacteria/filter_01/output_study/taxa.db
+INFO: Output dir: /home/ddi/STUDIES/MetaCluster/analysis/bacteria_eda
+INFO: Discovered 1919 valid datasets out of 2000 total folders
+WARNING: 81 folders missing required files (study gaps): dataset_0044_plan, dataset_0070_plan, dataset_0074_plan, dataset_0115_plan, dataset_0159_plan, dataset_0207_plan, dataset_0208_plan, dataset_0250_plan, dataset_0302_plan, dataset_0355_plan
+INFO: Initializing NCBI TaxonomistWrapper and resolving lineages...
+INFO: NCBI Taxonomist Wrapper initialized.
+INFO: Collected 53 unique input taxids across all datasets
+INFO: Retrieving taxids from local database
+2026-09-04 11:49:13,180 - deployment.model_evaluation.data_loader - INFO - Loaded 15980 input records from 1999 datasets
+2026-09-04 11:49:13,201 - metagenomics_utils.ncbi_tools - INFO - NCBI Taxonomist Wrapper initialized.
+2026-09-04 11:49:13,205 - metagenomics_utils.ncbi_tools - INFO - Retrieving taxids from local database
+INFO: Retrieved lineages for 53 taxids from local database. Missing 0 taxids.
+INFO: Updated lineage dictionary with 53 entries.
+INFO: Still missing taxids after NCBI fetch: 0
+INFO: Processing: dataset_0001_plan
+2026-09-04 11:49:15,557 - metagenomics_utils.ncbi_tools - INFO - Retrieved lineages for 53 taxids from local database. Missing 0 taxids.
+2026-09-04 11:49:15,557 - metagenomics_utils.ncbi_tools - INFO - Updated lineage dictionary with 53 entries.
+2026-09-04 11:49:15,557 - metagenomics_utils.ncbi_tools - INFO - Still missing taxids after NCBI fetch: 0
+2026-09-04 11:49:15,557 - deployment.model_evaluation.data_loader - INFO - Resolved 53 lineages
+2026-09-04 11:49:15,576 - deployment.model_evaluation.data_loader - INFO - Expanded input data with 54 unique taxids
+INFO: Tree created with 348 nodes and 175 leaves.
+2026-09-04 11:49:22,102 - metagenomics_utils.ncbi_tools - INFO - Retrieving taxids from local database
+INFO: Processing: dataset_0002_plan
+INFO: Tree created with 404 nodes and 203 leaves.
+INFO: Processing: dataset_0003_plan
+INFO: Tree created with 200 nodes and 101 leaves.
+INFO: Processing: dataset_0004_plan
+INFO: Tree created with 142 nodes and 72 leaves.
+INFO: Processing: dataset_0005_plan
+INFO: Tree created with 144 nodes and 73 leaves.
+INFO: Processing: dataset_0006_plan
+INFO: Tree created with 698 nodes and 350 leaves.
+INFO: Processing: dataset_0007_plan
+INFO: Tree created with 668 nodes and 335 leaves.
+INFO: Processing: dataset_0008_plan
+INFO: Tree created with 264 nodes and 133 leaves.
+INFO: Processing: dataset_0009_plan
+INFO: Tree created with 384 nodes and 193 leaves.
+INFO: Processing: dataset_0010_plan
+INFO: Tree created with 328 nodes and 165 leaves.
+INFO: Processing: dataset_0011_plan
+INFO: Tree created with 3 nodes and 2 leaves.
+INFO: Processing: dataset_0012_plan
+INFO: Tree created with 164 nodes and 83 leaves.
+INFO: Processing: dataset_0013_plan
+INFO: Tree created with 228 nodes and 115 leaves.
+INFO: Processing: dataset_0014_plan
+INFO: Tree created with 28 nodes and 15 leaves.
+INFO: Processing: dataset_0015_plan
+INFO: Tree created with 44 nodes and 23 leaves.
+INFO: Processing: dataset_0016_plan
+INFO: Tree created with 166 nodes and 84 leaves.
+INFO: Processing: dataset_0017_plan
+INFO: Tree created with 132 nodes and 67 leaves.
+INFO: Processing: dataset_0018_plan
+INFO: Tree created with 22 nodes and 12 leaves.
+INFO: Processing: dataset_0019_plan
+INFO: Tree created with 230 nodes and 116 leaves.
+INFO: Processing: dataset_0020_plan
+INFO: Tree created with 38 nodes and 20 leaves.
+INFO: Processing: dataset_0021_plan
+INFO: Tree created with 414 nodes and 208 leaves.
+INFO: Processing: dataset_0022_plan
+INFO: Tree created with 78 nodes and 40 leaves.
+INFO: Processing: dataset_0023_plan
+INFO: Tree created with 66 nodes and 34 leaves.
+INFO: Processing: dataset_0024_plan
+INFO: Tree created with 84 nodes and 43 leaves.
+INFO: Processing: dataset_0025_plan
+INFO: Tree created with 288 nodes and 145 leaves.
+INFO: Processing: dataset_0026_plan
+WARNING: dataset_0026_plan: OverlapManager has no leaves, skipping
+INFO: Processing: dataset_0027_plan
+WARNING: dataset_0027_plan: OverlapManager has no leaves, skipping
+INFO: Processing: dataset_0028_plan
+WARNING: dataset_0028_plan: OverlapManager has no leaves, skipping
+INFO: Processing: dataset_0029_plan
+INFO: Tree created with 134 nodes and 68 leaves.
+INFO: Processing: dataset_0030_plan
+INFO: Tree created with 388 nodes and 195 leaves.
+INFO: Processing: dataset_0031_plan
+INFO: Tree created with 250 nodes and 126 leaves.
+INFO: Processing: dataset_0032_plan
+INFO: Tree created with 68 nodes and 35 leaves.
+INFO: Processing: dataset_0033_plan
+INFO: Tree created with 174 nodes and 88 leaves.
+INFO: Processing: dataset_0034_plan
+INFO: Tree created with 18 nodes and 10 leaves.
+INFO: Processing: dataset_0035_plan
+INFO: Tree created with 86 nodes and 44 leaves.
+INFO: Processing: dataset_0036_plan
+INFO: Tree created with 190 nodes and 96 leaves.
+INFO: Processing: dataset_0037_plan
+INFO: Processing: dataset_0038_plan
+INFO: Tree created with 196 nodes and 99 leaves.
+INFO: Processing: dataset_0039_plan
+INFO: Tree created with 56 nodes and 29 leaves.
+INFO: Processing: dataset_0040_plan
+INFO: Tree created with 64 nodes and 33 leaves.
+INFO: Processing: dataset_0041_plan
+INFO: Tree created with 146 nodes and 74 leaves.
+INFO: Processing: dataset_0042_plan
+INFO: Tree created with 222 nodes and 112 leaves.
+INFO: Processing: dataset_0043_plan
+INFO: Tree created with 708 nodes and 355 leaves.
+INFO: Processing: dataset_0045_plan
+INFO: Tree created with 158 nodes and 80 leaves.
+INFO: Processing: dataset_0046_plan
+INFO: Tree created with 108 nodes and 55 leaves.
+INFO: Processing: dataset_0047_plan
+INFO: Tree created with 154 nodes and 78 leaves.
+INFO: Processing: dataset_0048_plan
+INFO: Tree created with 332 nodes and 167 leaves.
+INFO: Processing: dataset_0049_plan
+INFO: Tree created with 304 nodes and 153 leaves.
+INFO: Processing: dataset_0050_plan
+INFO: Tree created with 682 nodes and 342 leaves.
+INFO: Processing: dataset_0051_plan
+INFO: Tree created with 568 nodes and 285 leaves.
+INFO: Processing: dataset_0052_plan
+WARNING: dataset_0052_plan: OverlapManager has no leaves, skipping
+INFO: Processing: dataset_0053_plan
+INFO: Tree created with 6 nodes and 4 leaves.
+INFO: Processing: dataset_0054_plan
+INFO: Tree created with 156 nodes and 79 leaves.
+INFO: Processing: dataset_0055_plan
+INFO: Tree created with 424 nodes and 213 leaves.
+INFO: Processing: dataset_0056_plan
+INFO: Tree created with 8 nodes and 5 leaves.
+INFO: Processing: dataset_0057_plan
+INFO: Tree created with 352 nodes and 177 leaves.
+INFO: Processing: dataset_0058_plan
+INFO: Tree created with 266 nodes and 134 leaves.
+INFO: Processing: dataset_0059_plan
+INFO: Tree created with 64 nodes and 33 leaves.
+INFO: Processing: dataset_0060_plan
+INFO: Tree created with 166 nodes and 84 leaves.
+INFO: Processing: dataset_0061_plan
+INFO: Tree created with 420 nodes and 211 leaves.
+INFO: Processing: dataset_0062_plan
+INFO: Tree created with 8 nodes and 5 leaves.
+INFO: Processing: dataset_0063_plan
+INFO: Tree created with 430 nodes and 216 leaves.
+INFO: Processing: dataset_0064_plan
+INFO: Tree created with 96 nodes and 49 leaves.
+INFO: Processing: dataset_0065_plan
+INFO: Tree created with 74 nodes and 38 leaves.
+INFO: Processing: dataset_0066_plan
+INFO: Tree created with 14 nodes and 8 leaves.
+INFO: Processing: dataset_0067_plan
+INFO: Tree created with 4 nodes and 3 leaves.
+INFO: Processing: dataset_0068_plan
+INFO: Tree created with 94 nodes and 48 leaves.
+INFO: Processing: dataset_0069_plan
+INFO: Tree created with 430 nodes and 216 leaves.
+INFO: Processing: dataset_0071_plan
+INFO: Tree created with 28 nodes and 15 leaves.
+INFO: Processing: dataset_0072_plan
+INFO: Tree created with 16 nodes and 9 leaves.
+INFO: Processing: dataset_0073_plan
+INFO: Tree created with 176 nodes and 89 leaves.
+INFO: Processing: dataset_0075_plan
+INFO: Tree created with 334 nodes and 168 leaves.
+INFO: Processing: dataset_0076_plan
+INFO: Tree created with 24 nodes and 13 leaves.
+INFO: Processing: dataset_0077_plan
+INFO: Tree created with 8 nodes and 5 leaves.
+INFO: Processing: dataset_0078_plan
+INFO: Tree created with 16 nodes and 9 leaves.
+INFO: Processing: dataset_0079_plan
+INFO: Tree created with 26 nodes and 14 leaves.
+INFO: Processing: dataset_0080_plan
+INFO: Tree created with 14 nodes and 8 leaves.
+INFO: Processing: dataset_0081_plan
+INFO: Tree created with 356 nodes and 179 leaves.
+INFO: Processing: dataset_0082_plan
+INFO: Tree created with 10 nodes and 6 leaves.
+INFO: Processing: dataset_0083_plan
+INFO: Tree created with 130 nodes and 66 leaves.
+INFO: Processing: dataset_0084_plan
+INFO: Tree created with 242 nodes and 122 leaves.
+INFO: Processing: dataset_0085_plan
+INFO: Tree created with 58 nodes and 30 leaves.
+INFO: Processing: dataset_0086_plan
+INFO: Tree created with 232 nodes and 117 leaves.
+INFO: Processing: dataset_0087_plan
+INFO: Tree created with 346 nodes and 174 leaves.
+INFO: Processing: dataset_0088_plan
+INFO: Tree created with 4 nodes and 3 leaves.
+INFO: Processing: dataset_0089_plan
+INFO: Tree created with 188 nodes and 95 leaves.
+INFO: Processing: dataset_0090_plan
+INFO: Tree created with 6 nodes and 4 leaves.
+INFO: Processing: dataset_0091_plan
+INFO: Tree created with 18 nodes and 10 leaves.
+INFO: Processing: dataset_0092_plan
+INFO: Tree created with 520 nodes and 261 leaves.
+INFO: Processing: dataset_0093_plan
+INFO: Tree created with 42 nodes and 22 leaves.
+INFO: Processing: dataset_0094_plan
+INFO: Tree created with 374 nodes and 188 leaves.
+INFO: Processing: dataset_0095_plan
+INFO: Tree created with 134 nodes and 68 leaves.
+INFO: Processing: dataset_0096_plan
+INFO: Tree created with 80 nodes and 41 leaves.
+INFO: Processing: dataset_0097_plan
+INFO: Tree created with 3 nodes and 2 leaves.
+INFO: Processing: dataset_0098_plan
+INFO: Tree created with 402 nodes and 202 leaves.
+INFO: Processing: dataset_0099_plan
+INFO: Tree created with 374 nodes and 188 leaves.
+INFO: Processing: dataset_0100_plan
+INFO: Tree created with 16 nodes and 9 leaves.
+INFO: Processing: dataset_0101_plan
+INFO: Tree created with 304 nodes and 153 leaves.
+INFO: Processing: dataset_0102_plan
+INFO: Tree created with 450 nodes and 226 leaves.
+INFO: Processing: dataset_0103_plan

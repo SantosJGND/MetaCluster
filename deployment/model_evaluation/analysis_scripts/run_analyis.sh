@@ -7,6 +7,7 @@ TAXID_PLAN=/home/ddi/STUDIES/MetaCluster/Sims/panels/bacterial_assess.tsv
 NCBI_DB=$STUDY/taxa.db
 CACHE_DIR=/home/ddi/STUDIES/MetaCluster/evaluation/filter_direct_xgb_order/models/cache
 RESULTS_DIR=/home/ddi/STUDIES/MetaCluster/analysis
+TAXON_LEVEL=order
 
 cd "$ROOT"
 source .venv/bin/activate
@@ -21,7 +22,7 @@ python3 deployment/model_evaluation/analysis_scripts/compare_sort_strategies.py 
 --study_output_filepath "$STUDY" \
 --taxid_plan_filepath "$TAXID_PLAN" \
 --analysis_output_filepath "$RESULTS_DIR/compare_sort_strategies" \
---tax_level family &
+--tax_level $TAXON_LEVEL &
 PID1=$!
 
 echo "[2/5] EDA + explanatory..."
@@ -55,7 +56,7 @@ python3 -m deployment.model_evaluation.analysis_scripts.input_composition_predic
 --study_output_filepath "$STUDY" \
 --taxid_plan_filepath "$TAXID_PLAN" \
 --analysis_output_filepath "$RESULTS_DIR/compare_sort_strategies" \
---tax_level order \
+--tax_level $TAXON_LEVEL \
 --recall_cache "$CACHE_DIR" \
 --verbose
 
