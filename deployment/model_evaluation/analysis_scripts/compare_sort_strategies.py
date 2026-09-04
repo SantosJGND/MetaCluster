@@ -17,9 +17,11 @@ Usage:
 """
 
 import argparse
+import gc
 import logging
 import os
 import re
+import resource
 import sys
 from pathlib import Path
 
@@ -67,6 +69,8 @@ def _get_raw_m_stats_matrix(
         overlap_manager,
         filter_no_leaf=False,
     )
+    del overlap_manager
+    gc.collect()
     return m_stats if not m_stats.empty else None
 
 
@@ -92,11 +96,18 @@ def _collect_matrices(
     Returns list of (dataset_name, matrix) tuples.
     """
     matrices = []
-    for name in folder_names:
+    total = len(folder_names)
+    for i, name in enumerate(folder_names, 1):
         m = _get_raw_m_stats_matrix(name, config.study_output_filepath, ncbi_wrapper)
         if m is not None:
             matrices.append((name, m))
-    logger.info("Collected %d raw m_stats matrices from %d folders", len(matrices), len(folder_names))
+        if i % 100 == 0 or i == total:
+            rss_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
+            logger.info(
+                "[%d/%d] Collected %d matrices so far (RSS: %.0f MB)",
+                i, total, len(matrices), rss_mb,
+            )
+    logger.info("Collected %d raw m_stats matrices from %d folders", len(matrices), total)
     return matrices
 
 

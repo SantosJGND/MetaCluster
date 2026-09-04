@@ -18,6 +18,7 @@ import argparse
 import gc
 import logging
 import os
+import resource
 import sys
 from pathlib import Path
 
@@ -996,9 +997,10 @@ def main():
             gc.collect()
 
         if i % 100 == 0 or i == total_datasets:
+            rss_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
             logger.info(
                 f"[{i}/{total_datasets}] Progress: extracted={len(per_dataset_records)}, "
-                f"skipped={len(skipped_names)}, failed={len(failed_names)}"
+                f"skipped={len(skipped_names)}, failed={len(failed_names)}, RSS={rss_mb:.0f}MB"
             )
 
     atexit.unregister(_write_partial_metadata)
