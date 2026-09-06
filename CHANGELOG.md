@@ -52,6 +52,7 @@
 - **Upper quantile regression** (`fit_tp_upper_quantile()`, `save_quantile_summary()`, `plot_quantile_diagnostics()`) — 95th-percentile QuantReg for all three targets with logit (relindex) or log1p (count) transforms.
 - **`taxid_relindex` to scatter pairplot** — added to `plot_tp_scatters()` column list.
 - **Recall model README** (`explanatory/recall_model/README.md`) — documents data construction, GEE method, coefficient tables for all three variants with order effects, calibration/ROC, probability surface, and file manifest.
+- **Persistent feature importances** (`metagenomics_utils/overlap_manager/om_models.py`) — composition models write `models/composition_feature_importances.tsv` (sorted series from tree `feature_importances_` / LR `|coef_|`, names resolved via `feature_names_in_` / preprocessor output names) from `eval_and_plot()` → `save_feature_importances()` (`om_models.py:2403,2437-2475`); recall models write `models/recall_feature_importances.tsv` from `evaluate_models()` (`models.py:478-479`) → `RecallModeller.save_feature_importances()` (`om_models.py:718-728`), aggregated as the mean of `feature_importances_` across `MultiOutputRegressor` estimators (`om_models.py:705-717`) or single-estimator values for `direct` / `direct_xgb` (`om_models.py:981-988,1144-1151`). Backends with no native importances (`gp_clf`, MLP `monn_optimized`) log and skip the TSV.
 
 ### Fixed
 
@@ -61,6 +62,7 @@
 - **`predict_televir_clustering_threshold`: `taxon_hits` defaults to 12 zeros** — was `[]` → `KeyError: 'Baculoviridae'`
 - **`predict_recall_cutoff_from_table`: `tax_level` column forwarded to transformer** — was `KeyError: 'order'` in `node_composition_with_stats`
 - **`ClusteringPipeline._scale`/`predict`/`predict_proba`: backward compat for old pickles** — pickles with `model`/`scaler` attrs (instead of `classifier_`/`scaler_`) now load and predict correctly
+- **`RecallModeller.model_summary` crash for `monn_optimized`** (`om_models.py`) — removed the legacy `feature_importances` call (`monn_optimized` MLP has no `feature_importances_`), which also dropped the unused `recall_model_analysis_results_feature_importances.tsv`; importances now persist via `recall_feature_importances.tsv` instead
 
 ### Changed
 

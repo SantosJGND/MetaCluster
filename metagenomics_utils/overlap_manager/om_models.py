@@ -700,10 +700,32 @@ class RecallModeller:
                 f.write(f"{col}\t{r2}\t{mse}\n")
         return r2_scores, mse_scores
 
-    def feature_importances(self, model, output_filepath):
-        importances = np.mean([est.feature_importances_ for est in model.estimators_], axis=0)
-        feat_importance = pd.Series(importances, index=self.RecP_feature_cols).sort_values(ascending=False)
-        feat_importance.to_csv(output_filepath)
+    feature_importance_filename = "recall_feature_importances.tsv"
+
+    def feature_importance_dataframe(self):
+        """Return aggregated per-feature importances as a sorted Series, or None if unsupported."""
+        model = self.model
+        if model is None or not hasattr(model, "estimators_"):
+            return None
+        try:
+            importances = np.mean([est.feature_importances_ for est in model.estimators_], axis=0)
+        except AttributeError:
+            return None
+        if not self.RecP_feature_cols:
+            return None
+        return pd.Series(importances, index=self.RecP_feature_cols).sort_values(ascending=False)
+
+    def save_feature_importances(self, output_directory: str):
+        importances = self.feature_importance_dataframe()
+        if importances is None:
+            logger.info(
+                f"{type(self).__name__}: no native feature importances available, skipping TSV "
+                f"({self.feature_importance_filename})"
+            )
+            return
+        filepath = os.path.join(output_directory, self.feature_importance_filename)
+        importances.to_csv(filepath, sep="\t")
+        logger.info(f"Saved feature importances ({len(importances)} features) to {filepath}")
 
     def plot_eval(self, X_test, Y_test, analysis_output_filepath):
         import matplotlib.pyplot as plt
@@ -729,8 +751,6 @@ class RecallModeller:
 
         analysis_output_filepath = os.path.join(analysis_output_filedir, "recall_model_analysis_results.txt")
         r2_scores, mse_scores = self.evaluate_model(model, X_test, Y_test, analysis_output_filepath)
-        feat_importance_filepath = analysis_output_filepath.replace(".txt", "_feature_importances.tsv")
-        self.feature_importances(model, feat_importance_filepath)
         self.plot_eval(X_test, Y_test, analysis_output_filepath.replace(".txt", "_recall_prediction_differences.png"))
         import matplotlib.pyplot as plt
 
@@ -958,6 +978,14 @@ class CutoffRecallModeller(RecallModeller):
         self.evaluate_model(model, X_test, Y_test, output_filepath)
         return {"accuracy": acc}, {}
 
+    def feature_importance_dataframe(self):
+        model = self.model
+        if model is None or not hasattr(model, "feature_importances_"):
+            return None
+        if not self.RecP_feature_cols:
+            return None
+        return pd.Series(model.feature_importances_, index=self.RecP_feature_cols).sort_values(ascending=False)
+
 
 class DirectXGBRecallModeller(RecallModeller):
     """
@@ -1112,6 +1140,14 @@ class DirectXGBRecallModeller(RecallModeller):
         output_filepath = os.path.join(analysis_output_filedir, "recall_model_analysis_results.txt")
         self.evaluate_model(model, X_test, Y_test, output_filepath)
         return {"r2": r2, "mse": mse}, {}
+
+    def feature_importance_dataframe(self):
+        model = self.model
+        if model is None or not hasattr(model, "feature_importances_"):
+            return None
+        if not self.RecP_feature_cols:
+            return None
+        return pd.Series(model.feature_importances_, index=self.RecP_feature_cols).sort_values(ascending=False)
 
 
 class GPCLFThreshold(RegressorMixin, BaseEstimator):
@@ -2267,14 +2303,10 @@ class BaseCompositionModeller(ABC):
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
 
-        classifier = self._get_classifier()
-        if classifier is None or not hasattr(classifier, "feature_importances_"):
+        importances = self.feature_importance_dataframe()
+        if importances is None:
             return
 
-        if self._feature_names is None:
-            return
-
-        importances = pd.Series(classifier.feature_importances_, index=self._feature_names)
         importances.sort_values(ascending=True).tail(20).plot.barh(figsize=(8, 8))
         plt.title("Top 20 Feature Importances")
         plt.tight_layout()
@@ -2368,6 +2400,7 @@ class BaseCompositionModeller(ABC):
             self.X_train = X_train
         report, cm = self.evaluate_model(X_test, y_test)
         self.plot_eval(output_directory)
+        self.save_feature_importances(output_directory)
         self.shap_eval_plot(output_directory)
         self.shap_interaction_plot(output_directory)
         return report, cm
@@ -2381,6 +2414,65 @@ class BaseCompositionModeller(ABC):
         if hasattr(self.pipeline, "named_steps"):
             return self.pipeline[-1] if hasattr(self.pipeline[-1], "predict") else self.pipeline
         return self.pipeline
+
+    def _feature_importance_names(self, classifier) -> list[str] | None:
+        """Resolve the feature names aligned with ``classifier``'s importances.
+
+        Prefers the names the classifier itself saw (``feature_names_in_``),
+        then the preprocessing output names (``get_feature_names_out``),
+        falling back to the raw training feature names.
+        """
+        feature_names_in = getattr(classifier, "feature_names_in_", None)
+        if feature_names_in is not None:
+            return list(feature_names_in)
+        if isinstance(self.pipeline, Pipeline):
+            preprocessor = self.pipeline.named_steps.get("preprocessor")
+            if preprocessor is not None:
+                try:
+                    return list(preprocessor.get_feature_names_out())
+                except Exception:
+                    pass
+        return list(self._feature_names) if self._feature_names is not None else None
+
+    def feature_importance_dataframe(self):
+        """Return per-feature importances as a sorted Series, or None if unsupported.
+
+        Tree backends expose ``feature_importances_``; the linear backend
+        (``LRCompositionModeller``) exposes ``coef_`` (absolute value).
+        """
+        classifier = self._get_classifier()
+        if classifier is None:
+            return None
+        names = self._feature_importance_names(classifier)
+        if names is None:
+            return None
+
+        importances = None
+        if hasattr(classifier, "feature_importances_"):
+            importances = classifier.feature_importances_
+            if len(importances) != len(names):
+                return None
+            return pd.Series(importances, index=names).sort_values(ascending=False)
+        if hasattr(classifier, "coef_") and classifier.coef_ is not None:
+            importances = np.abs(classifier.coef_).flatten()
+            if len(importances) != len(names):
+                return None
+            return pd.Series(importances, index=names).sort_values(ascending=False)
+        return None
+
+    feature_importance_filename = "composition_feature_importances.tsv"
+
+    def save_feature_importances(self, output_directory: str):
+        importances = self.feature_importance_dataframe()
+        if importances is None:
+            logger.info(
+                f"{type(self).__name__}: no native feature importances available, skipping TSV "
+                f"({self.feature_importance_filename})"
+            )
+            return
+        filepath = os.path.join(output_directory, self.feature_importance_filename)
+        importances.to_csv(filepath, sep="\t")
+        logger.info(f"Saved feature importances ({len(importances)} features) to {filepath}")
 
 
 class XGBCompositionModeller(BaseCompositionModeller):
@@ -2536,17 +2628,12 @@ class LRCompositionModeller(BaseCompositionModeller):
         from sklearn.pipeline import Pipeline
 
         stats_cols = [c for c in STATS_COLS if c in X_train.columns]
+        preprocessor = ColumnTransformer([("scaler", StandardScaler(), stats_cols)], remainder="drop")
+        preprocessor.set_output(transform="pandas")
+        preprocessor.verbose_feature_names_out = False
         pipeline = Pipeline(
             [
-                (
-                    "preprocessor",
-                    ColumnTransformer(
-                        [
-                            ("scaler", StandardScaler(), stats_cols),
-                        ],
-                        remainder="drop",
-                    ),
-                ),
+                ("preprocessor", preprocessor),
                 (
                     "classifier",
                     LogisticRegression(

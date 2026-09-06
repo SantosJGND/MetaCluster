@@ -475,6 +475,8 @@ class ModelTrainer:
             self.recall_modeller.model_summary(
                 self.recall_modeller.model, self.recall_modeller.X_test, self.recall_modeller.y_test, output_dir
             )
+            if hasattr(self.recall_modeller, "save_feature_importances"):
+                self.recall_modeller.save_feature_importances(output_dir)
             if hasattr(self.recall_modeller, "plot_diagnostics"):
                 logger.info("Generating recall diagnostic plots...")
                 self.recall_modeller.plot_diagnostics(output_dir)

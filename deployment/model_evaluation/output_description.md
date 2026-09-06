@@ -11,6 +11,8 @@ All outputs are written under `{analysis_output_filepath}` (set via `--analysis_
 ├── models/
 │   ├── recall_xgb_bundle.pkl          (or variant: cutoff_recall_bundle.pkl, direct_xgb_bundle.pkl, recall_gp_clf_pipeline.pkl)
 │   ├── composition_xgb_bundle.pkl     (or variant: composition_{rf,gb,lr,optuna}_bundle.pkl)
+│   ├── composition_feature_importances.tsv
+│   ├── recall_feature_importances.tsv (not for gp_clf — no native importances)
 │   ├── cross_hit_xgb_bundle.pkl
 │   ├── taxids_to_use.parquet
 │   ├── recall_model_summary.png
@@ -90,12 +92,69 @@ Serialized model bundles saved via each modeller's `save_model()` method. Files 
 | `lr` | `composition_lr_bundle.pkl` | `LRCompositionModeller` |
 
 | Model | Saved file | Class |
-|---|---|---|
+|---|---|---|---|
 | Cross-hit (always trained) | `cross_hit_xgb_bundle.pkl` | `CrossHitModeller` |
+
+### Composition Model Feature Importances
+
+The composition model is trained during evaluation (`evaluate.py:299-301` → `trainer.train_models()` builds `composition_modeller`, `models.py:385,421`), then `trainer.evaluate_models(config.models_dir)` (`models.py:482-489`) calls `composition_modeller.eval_and_plot(X_test, y_test, output_dir, X_train=...)` (`om_models.py:2396-2406`). The feature-importance plots and TSV are written into `config.models_dir` (`{analysis_output_filepath}/models/`).
+
+| Composition modeller | Output file | Source attribute |
+|---|---|---|
+| `XGBCompositionModeller` (`xgb`) | `composition_feature_importance.png` (top-20 horizontal bar, `om_models.py:2300-2314`) | `classifier.feature_importances_` |
+| `RFCompositionModeller` (`rf`) | `composition_feature_importance.png` | `classifier.feature_importances_` |
+| `GBCompositionModeller` (`gb`) | `composition_feature_importance.png` | `classifier.feature_importances_` |
+| `OptunaXGBCompositionModeller` (`xgb_optimized`) | `composition_feature_importance.png` | `classifier.feature_importances_` |
+| `LRCompositionModeller` (`lr`) | `lr_coefficients.png` (absolute coefficient bar, `om_models.py:2651-2667`) | `classifier.coef_` |
+
+All composition backends additionally write **`composition_feature_importances.tsv`** via
+`save_feature_importances()` (`om_models.py:2465-2475`), called from `eval_and_plot()`
+(`om_models.py:2403`). It is a two-column TSV (feature name, importance magnitude),
+sorted descending — tree backends use `feature_importances_`, the linear backend the
+absolute `coef_`, resolved through `feature_importance_dataframe()` (`om_models.py:2437-2461`)
+with feature names aligned via `feature_names_in_` / preprocessor output names
+(`om_models.py:2418-2435`).
+
+**Notes:**
+- `eval_and_plot` also attempts SHAP plots (`shap_summary_plot.png`, `shap_bar_plot.png`, `shap_dependence_plot.png`, plus interaction plots) via `shap_eval_plot()` / `shap_interaction_plot()` (`om_models.py:2316-2394`). These are wrapped in a silent `try/except pass`, so they will **not** appear if `shap` is not installed, lacks the required dependence, or errors — they are best-effort only. The `LRCompositionModeller` overrides both SHAP methods to no-ops.
+- Tree-based backends (`feature_importances_`) and the linear backend (`coef_`) are mutually exclusive: only the plot matching the chosen `--composition_model_interface` is emitted.
+
+### Recall Model Feature Importances
+
+After recall training, `trainer.evaluate_models(config.models_dir)` calls
+`self.recall_modeller.save_feature_importances(output_dir)` (`models.py:478-479`).
+This writes **`models/recall_feature_importances.tsv`** — a sorted, two-column TSV
+(feature name, importance magnitude) of the **aggregated per-feature importances**
+(feature means across all targets), via `RecallModeller.save_feature_importances()`
+(`om_models.py:718-728`).
+
+| `--recall_model_interface` | Importance source |
+|---|---|
+| `xgb`, `morf`, `moxgb_optimized`, `morf_optimized`, `monn_optimized` | Mean of `est.feature_importances_` over the `MultiOutputRegressor` estimators (`om_models.py:705-717`) |
+| `direct` | `model.feature_importances_` from the RF classifier (`om_models.py:981-988`) |
+| `direct_xgb` | `model.feature_importances_` from the single XGBoost regressor (`om_models.py:1144-1151`) |
+| `gp_clf` | None — per-division GP regressors have no native importances; the TSV is **skipped** (logged only) |
+
+The base `RecallModeller.model_summary` no longer emits the legacy
+`recall_model_analysis_results_feature_importances.tsv`.
 
 ### `models/taxids_to_use.parquet`
 
 The `taxids_to_use` DataFrame at training time — columns: `taxid`, `order`, `family`, `genus`.
+
+> **Important — not to be confused with the input panel (taxid plan).**
+> This table is *not* the `taxid_plan` / `bacterial_assess.tsv` input panel. The input panel lists the reference taxa configured for the simulation (loaded from `--taxid-plan-filepath`). `taxids_to_use.parquet` is a **derived artifact** computed from the study's *output* (the clade reports of the simulated datasets) — it records which taxids actually appear in the analysis outputs, standardised at a chosen taxonomic level. They are distinct objects with different sources.
+
+**Construction** (`data_loader.py`):
+
+1. **Entry point** — `evaluate.py:274` calls `DataLoader(config).initialize()`, which runs `_establish_taxids()` last in its loading sequence (`data_loader.py:269-281`).
+2. **Gather output taxids** — `output_parse()` (`data_loader.py:75-110`) scans **every** dataset folder's `output/clade_report_with_references.tsv`, unions all output taxids found, and adds the input taxids from `all_input_data["taxid"].dropna().unique()`.
+3. **Resolve lineages** — `ncbi_wrapper.resolve_lineages()` is called, then `get_level()` fills the `order`, `family`, `genus` columns from the NCBI taxonomy DB for each taxid.
+4. **Filter by frequency** — `establish_taxids_to_use()` (`data_loader.py:113-159`) drops rows whose tax-level value-count frequency `<= min_tax_count` (i.e. `config.taxa_threshold`, default `0.02`).
+5. **Clean + sentinel** — drops NaNs on the chosen tax level, dedupes on it, then appends an `unclassified` sentinel row with `taxid=0`.
+6. **Persist** — `evaluate.py:300` → `trainer.save_models(config.models_dir)` → `models.py:458-461` writes this DataFrame to `{analysis_output_filepath}/models/taxids_to_use.parquet`. A copy is also cached as `models/cache/taxids_to_use_cache.parquet` (see below).
+
+**Consumers**: `loader.get_taxids_to_use()` is passed to `ModelTrainer`, `TrainingCrossHitAnalyzer`, and `BatchEvaluator` (`evaluate.py:295, 308, 321`); it is reloaded by `models.py:641-644`, `ml_api/train_recall.py:41`, and `deployment/analysis/analyze_samples.py:521,534`.
 
 ### Serialization Formats
 
@@ -271,6 +330,19 @@ Per-dataset spurious (trash) composition — columns per taxonomic class at the 
 ### `test_datasets_cross_hit_composition.tsv`
 
 Same structure for cross-hit composition.
+
+### Input set vs. `taxids_to_use` — which is used for TP / spurious / cross-hit estimates
+
+TP, cross-hit, spurious, recall and precision estimates are computed **against the full input taxid set of each dataset** (`result.input_df`), **not** against the filtered `taxids_to_use` table:
+
+- **`input_df`** (`dataset_processor.py:155-157`) is built from each dataset's own `input/{dataset}.tsv`, then merged with `input_tax_df` (the expanded lineage table of **all** input taxids) for its `order`/`family`/`genus` columns.
+- **Recall** (`metrics.py:270-296`) and **precision** (`metrics.py:240-267`) both take `input_summary` and use `set(input_summary["taxid"].unique())` as the denominator / reference: e.g. `recall = |output ∩ input| / |input|`.
+- **Cross-hit TP/FP** (`dataset_processor.py:460-468`) derive solely from `m_stats` flags (`best_match_is_best`, `is_trash`) and the predicted `filtered` rows — no `taxids_to_use` involved.
+
+`taxids_to_use` is used **only as the composition class schema**, not as the TP reference:
+- `get_spurious_composition()` / `get_cross_hit_composition()` (`om_models.py:3055,3074`) receive `tax_df=taxids_to_use`, but use it purely to supply the taxonomic columns in `get_subset_composition()`. The rows are selected by `is_trash` / `is_crosshit` flags and matched to the dataset's own input taxids (`cross_hit_match == taxid`), **not** restricted to `taxids_to_use`.
+
+> Since `taxids_to_use` is the frequency-filtered subset (rows with tax-level frequency `> taxa_threshold`), the TP/recall/precision estimators intentionally bypass it to avoid under-counting. Only the composition breakdown reuses it as the class schema.
 
 ---
 
