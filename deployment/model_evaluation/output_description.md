@@ -12,7 +12,7 @@ All outputs are written under `{analysis_output_filepath}` (set via `--analysis_
 │   ├── recall_xgb_bundle.pkl          (or variant: cutoff_recall_bundle.pkl, direct_xgb_bundle.pkl, recall_gp_clf_pipeline.pkl)
 │   ├── composition_xgb_bundle.pkl     (or variant: composition_{rf,gb,lr,optuna}_bundle.pkl)
 │   ├── composition_feature_importances.tsv
-│   ├── recall_feature_importances.tsv (not for gp_clf — no native importances)
+│   ├── recall_feature_importances.tsv (not for gp_clf / monn_optimized — no native importances)
 │   ├── cross_hit_xgb_bundle.pkl
 │   ├── taxids_to_use.parquet
 │   ├── recall_model_summary.png
@@ -130,10 +130,10 @@ This writes **`models/recall_feature_importances.tsv`** — a sorted, two-column
 
 | `--recall_model_interface` | Importance source |
 |---|---|
-| `xgb`, `morf`, `moxgb_optimized`, `morf_optimized`, `monn_optimized` | Mean of `est.feature_importances_` over the `MultiOutputRegressor` estimators (`om_models.py:705-717`) |
+| `xgb`, `morf`, `moxgb_optimized`, `morf_optimized` | Mean of `est.feature_importances_` over the `MultiOutputRegressor` estimators (`om_models.py:705-717`) |
 | `direct` | `model.feature_importances_` from the RF classifier (`om_models.py:981-988`) |
 | `direct_xgb` | `model.feature_importances_` from the single XGBoost regressor (`om_models.py:1144-1151`) |
-| `gp_clf` | None — per-division GP regressors have no native importances; the TSV is **skipped** (logged only) |
+| `gp_clf`, `monn_optimized` | None — per-division GP regressors and the MLP backend (`MultiOutputRegressor(MLPRegressor(...))`, `om_models.py:430-431`) have no native importances; the TSV is **skipped** (logged only) |
 
 The base `RecallModeller.model_summary` no longer emits the legacy
 `recall_model_analysis_results_feature_importances.tsv`.
