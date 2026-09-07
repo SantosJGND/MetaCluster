@@ -171,6 +171,8 @@ def test_extractor_emits_cohort_metadata(tmp_path, monkeypatch):
         cross_hit_threshold=0.3,
         min_taxonomic_score=0.7,
         explanatory=False,
+        replay_recall=None,
+        replay_order_mode="reference",
     )
     monkeypatch.setattr(adx, "parse_args", lambda: namespace)
 

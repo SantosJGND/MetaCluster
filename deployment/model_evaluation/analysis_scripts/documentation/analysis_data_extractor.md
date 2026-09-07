@@ -63,6 +63,8 @@ Upper 95th percentile quantile models for the same targets, via `statsmodels.Qua
 
 Three formula variants (A, B, C) predicting binary recall (`recalled`) using `log_reads`, `mutation_rate`, `order` as predictors, with `Binomial` family and `Independence` covariance structure, grouped by `data_set`.
 
+> **Target definition.** `recalled` is **classification-aware**: 1 if the input taxid is best-matched in the m-stats matrix *or* the classifier called it with `uniq_reads > 0`. The assembly-only indicator is kept alongside as `recalled_assembly` (and `recalled_classification` for the classifier-only view) so an assembly-based GEE can be refit from the same `recall_data.tsv` by swapping the response in `RECALL_FORMULAS`. Coefficient tables and probability surfaces generated before this change used the assembly-only target (which was additionally coverage-filtered) and are not comparable. See `output_description.md` → "Recall definitions".
+
 ## Outputs
 
 ### Core Tables
@@ -79,8 +81,10 @@ One row per dataset.
 | `n_tp` | True-positive taxids (input taxids found in output) |
 | `n_cross_hit` | Cross-hit count |
 | `n_spurious` | Spurious assignment count |
-| `recall` | Overall recall fraction: `n_tp / n_input_taxids` |
-| `recall_cov_filtered` | Recall after coverage filtering |
+| `overall_recall` | Classification-aware recall: input taxids that are best-matched in the m-stats matrix **or** called by the classifier with `uniq_reads > 0`, divided by `n_input_taxids` |
+| `recall_cov_filtered` | Assembly-based recall restricted to best-matched leaves with coverage > 0 |
+| `recall_assembly` | Assembly-based recall (best-matched leaves, zero-coverage included) |
+| `recall_classification` | Classifier-only recall: input taxids present in `<ds>_merged_classification.tsv` with `uniq_reads > 0` |
 | `last_best_match_relindex` | Relative index [0, 1] of the last correct `best_match_is_best` entry, normalised by total m-stats length |
 | `precision_strict` | Strict precision (output matches must be exact) |
 | `precision_approx` | Approximate precision (allowing taxonomic relaxation) |
@@ -183,7 +187,9 @@ TP-level predictor data for mixed-effects and quantile modelling. One row per (d
 | `mutation_rate` | Mutation rate |
 | `taxid_relindex` | Relative index of this taxid in the sorted list |
 | `order` | Taxonomic order (random intercept group) |
-| `recalled` | Binary recall indicator (1 = taxid found in output) |
+| `recalled` | Binary recall indicator (1 = taxid best-matched in output **or** detected by the classifier with `uniq_reads > 0`) |
+| `recalled_assembly` | 1 = taxid best-matched in the m-stats matrix (assembly-based) |
+| `recalled_classification` | 1 = taxid called by the classifier with `uniq_reads > 0` |
 
 #### `explanatory/model_{target}_summary.tsv`
 
@@ -248,28 +254,54 @@ Binary recall data for GEE modelling. One row per (dataset, taxid).
 |---|---|
 | `data_set` | Dataset name |
 | `taxid` | Taxonomic ID |
-| `log_reads` | Log-transformed reads |
+| `reads_simulated` | Reads simulated for this taxid |
 | `mutation_rate` | Mutation rate |
 | `order` | Taxonomic order |
-| `recalled` | Binary outcome (1 = taxid recalled, 0 = not recalled) |
+| `recalled` | Binary outcome (1 = taxid best-matched in the m-stats matrix **or** detected by the classifier with `uniq_reads > 0`) — GEE target |
+| `recalled_assembly` | 1 = taxid best-matched in the m-stats matrix only (assembly-based, secondary) |
+| `recalled_classification` | 1 = taxid called by the classifier with `uniq_reads > 0` |
+
+> `log_reads = log1p(reads_simulated)` is derived at fit time (`fit_recall_gee`); it is **not** stored in this file. This file is sufficient to replay the recall surfaces (see below).
 
 #### `explanatory/recall_model/recall_variant_{A,B,C}_summary.tsv`
 
-GEE coefficient summaries for each formula variant.
+GEE coefficient summaries for each formula variant. Terms are keyed by their
+patsy formula name (first column, e.g. `Intercept`, `log_reads`, `mutation_rate`,
+`I(mutation_rate ** 2)`, `C(order)[T.X]`).
 
 | Column | Description |
 |---|---|
+| (first, term names) | Patsy term name |
 | `coef` | Coefficient estimate |
-| `std_err` | Robust standard error (sandwich estimator) |
+| `se` | Robust standard error (sandwich estimator) |
 | `z` | Z-statistic |
-| `P>|z|` | Two-sided p-value |
-| `[0.025` | Lower bound of 95% confidence interval |
-| `0.975]` | Upper bound of 95% confidence interval |
+| `p_value` | Two-sided p-value |
+| `ci_lower` | Lower bound of the 95% confidence interval |
+| `ci_upper` | Upper bound of the 95% confidence interval |
 
 #### `explanatory/recall_model/recall_calibration.png`
 
-Calibration curve (X-axis: predicted probability, Y-axis: observed frequency) showing how well predicted recall probabilities match empirical rates. Inset ROC curve in the top-right corner. Perfect calibration follows the diagonal.
+Calibration curve (X-axis: predicted probability, Y-axis: observed frequency) showing how well predicted recall probabilities match empirical rates, with ROC curve inset. Perfect calibration follows the diagonal.
 
 #### `explanatory/recall_model/recall_probability_surface.png`
 
-Contour plot. X-axis: log_reads, Y-axis: mutation_rate. Colour fill: predicted recall probability (from the GEE model). Shows the interaction surface between read depth and mutation rate on recall probability. Lighter regions indicate higher recall probability.
+Contour plot panel per fitted GEE formula variant (A, B, C). X-axis: `log_reads`,
+Y-axis: `mutation_rate`. Colour fill: predicted recall probability. Shows the
+interaction surface between read depth and mutation rate on recall probability.
+Lighter regions indicate higher recall probability. Each panel is evaluated at the
+most frequent taxonomic order by default (`order_mode="reference"`).
+
+**Replaying from a saved directory (no refit):** the surface can be reconstructed
+purely from `recall_data.tsv` + the three `recall_variant_{A,B,C}_summary.tsv` files
+(the design matrix is rebuilt via `patsy` from the training data's `design_info`,
+so predictions match the fitted models):
+
+```bash
+python deployment/model_evaluation/analysis_data_extractor.py \
+    --replay-recall <output>/explanatory/recall_model \
+    --output-dir <target> \
+    [--replay-order-mode reference|average]
+```
+
+`--replay-order-mode average` instead evaluates the surface at **every** taxonomic
+order in `recall_data.tsv` and plots their mean (average across classes).

@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 import time
 
 import pandas as pd
@@ -27,6 +28,23 @@ class RateLimiter:
 # Global rate limiter instance
 _rate_limiter = RateLimiter(delay_between_calls=0.5)
 
+_NCBI_ACCESSION_RE = re.compile(r"(GC[AF]_\d+\.\d+|[A-Z]{1,2}_?\d{5,}\.\d+)")
+
+
+def _accession_from_filename(filename: str, taxid: str | None = None) -> str | None:
+    """Best-effort accession extraction from a stored sequence filename."""
+    m = _NCBI_ACCESSION_RE.search(filename)
+    if m:
+        return m.group(0)
+    stem = filename
+    for suffix in ("_sequence.fasta.gz", ".fasta.gz", ".fna.gz", ".fa.gz", ".fasta", ".fna", ".fa"):
+        if stem.endswith(suffix):
+            stem = stem[: -len(suffix)]
+            break
+    if taxid and stem.startswith(f"{taxid}_"):
+        stem = stem[len(taxid) + 1 :]
+    return stem or None
+
 
 class AssemblyStore:
     """
@@ -46,25 +64,55 @@ class AssemblyStore:
         self.logger.propagate = False
 
         self.ncbi = NCBITools()
+        self.last_failed_taxids: pd.DataFrame = pd.DataFrame(columns=["taxid", "accession", "error"])
 
     def get_assembly_path(self, taxid: str) -> str:
         return os.path.join(self.store_path, taxid)
 
+    _SEQUENCE_SUFFIXES = (".fasta.gz", ".fna.gz", ".fa.gz", ".fasta", ".fna", ".fa")
+
+    def _candidate_files(self, directory: str, accession: str | None) -> list[str]:
+        """Sequence files in ``directory``, optionally restricted to those mentioning ``accession``."""
+        if not os.path.isdir(directory):
+            return []
+        files = sorted(f for f in os.listdir(directory) if f.endswith(self._SEQUENCE_SUFFIXES))
+        if accession:
+            files = [f for f in files if accession in f]
+        return [os.path.join(directory, f) for f in files]
+
     def retrieve_local_assembly(self, passport: Passport) -> LocalAssembly | None:
         """
-        Check if the assembly for the given taxid exists in the assembly store.
+        Locate an assembly for ``passport`` in the store.
+
+        Lookup order:
+        1. exact ``{store}/{taxid}/{taxid}_{accession}_sequence.fasta.gz``;
+        2. any sequence file under ``{store}/{taxid}/`` containing the accession
+           (or any sequence file there when no accession is known);
+        3. any sequence file anywhere in the store containing the accession.
         """
-        taxid_subdir = f"{self.store_path}/{passport.taxid}"
+        taxid_subdir = os.path.join(self.store_path, str(passport.taxid))
+        exact = os.path.join(taxid_subdir, f"{passport.prefix}_sequence.fasta.gz")
+        if os.path.exists(exact):
+            return LocalAssembly(taxid=passport.taxid, accession=passport.accession, file_path=exact)
 
-        # Assuming the first file is the assembly file
-        assembly_file = os.path.join(taxid_subdir, f"{passport.prefix}_sequence.fasta.gz")
+        candidates = self._candidate_files(taxid_subdir, passport.accession)
+        if not candidates and passport.accession is None:
+            candidates = self._candidate_files(taxid_subdir, None)
+        if not candidates and passport.accession:
+            for entry in sorted(os.listdir(self.store_path)) if os.path.isdir(self.store_path) else []:
+                candidates.extend(self._candidate_files(os.path.join(self.store_path, entry), passport.accession))
+                if candidates:
+                    break
 
-        if not os.path.exists(assembly_file):
+        if not candidates:
             self.logger.warning(f"No assembly file found for taxid {passport.taxid} and accession {passport.accession}")
             return None
-        accid = passport.accession
 
-        return LocalAssembly(taxid=passport.taxid, accession=accid, file_path=assembly_file) if assembly_file else None
+        chosen = candidates[0]
+        if len(candidates) > 1:
+            self.logger.info(f"Multiple local assemblies for taxid {passport.taxid}; using {chosen}")
+        accid = passport.accession or _accession_from_filename(os.path.basename(chosen), str(passport.taxid))
+        return LocalAssembly(taxid=passport.taxid, accession=accid, file_path=chosen)
 
     def retrieve_assembly(
         self,
@@ -183,11 +231,17 @@ class AssemblyStore:
                 df.at[index, "assembly_file"] = None
 
         # Save failed taxids for debugging and manual retry
+        self.last_failed_taxids = pd.DataFrame(failed_taxids, columns=["taxid", "accession", "error"])
+        n_rows = len(df)
         if failed_taxids:
-            failed_df = pd.DataFrame(failed_taxids)
             failed_file = os.path.join(self.store_path, "failed_taxids.tsv")
-            failed_df.to_csv(failed_file, sep="\t", index=False)
-            self.logger.warning(f"Saved {len(failed_taxids)} failed taxids to {failed_file}")
+            self.last_failed_taxids.to_csv(failed_file, sep="\t", index=False)
+            self.logger.warning(
+                f"Assembly matching: {len(failed_taxids)}/{n_rows} taxids unmatched "
+                f"({len(failed_taxids) / n_rows:.1%}); saved to {failed_file}"
+            )
+        else:
+            self.logger.info(f"Assembly matching: all {n_rows} taxids matched")
 
         if df.empty:
             df = pd.DataFrame(columns=["taxid", "assembly_accession", "assembly_file"])

@@ -266,6 +266,57 @@ full study cohort, so downstream statistics can state their denominator honestly
 
 Invariant: `dropped == skipped + failed + study_gaps`.
 
+### Recall definitions (shared by both pipelines)
+
+Recall is always `|detected ∩ input_taxids| / |input_taxids|`; the variants differ only in
+what counts as *detected*. The same three definitions are emitted by the evaluation
+pipeline (`test_datasets_summary_results.tsv`) and by the EDA extractor
+(`per_dataset_metrics.tsv`, `recall_data.tsv`):
+
+| Definition | Detected = | Evaluation column | Extractor per-dataset | Extractor per-taxid |
+|---|---|---|---|---|
+| **Classification-aware** (headline) | best-matched, non-trash leaf in the m-stats matrix **or** classifier row with `uniq_reads > 0` in `<ds>_merged_classification.tsv` | `recall_baseline` | `overall_recall` | `recalled` (GEE target) |
+| **Assembly** | best-matched, non-trash leaf only (zero-coverage leaves included) | `recall_baseline_assembly` | `recall_assembly` | `recalled_assembly` |
+| **Assembly, coverage-filtered** | best-matched leaf with `coverage > 0` | `recall_baseline_cov_filtered` | `recall_cov_filtered` | — |
+| **Classification only** | classifier row with `uniq_reads > 0` | `recall_baseline_classification` | `recall_classification` | `recalled_classification` |
+
+Notes:
+- Post-filter metrics (`recall_after_recall_filter`, `recall_fixed_max_12`, `recall_clade_*`)
+  measure what survives the filtering/clustering stages and therefore stay **assembly-based**.
+- The classification-aware definition credits taxa the classifier found but for which no
+  reference genome was matched (`classified_no_assembly` in the diagnostic below); the
+  assembly definitions measure the full classify → map → cluster chain.
+- Datasets without a classification file fall back to assembly-based values for the
+  headline column (the classifier set is empty).
+- Historical note: before this change `recall_baseline` only counted best-matched leaves and
+  the best-marking step skipped zero-coverage leaves, so it was identical to
+  `recall_baseline_cov_filtered`. Values regenerated with the current code are therefore not
+  comparable to older summary files without recomputation.
+
+### Recall-gap diagnostic — `analysis_scripts/diagnose_recall_gap.py`
+
+File-based diagnostic (no lineage lookups, no network) that assigns every
+`(dataset, input taxid)` to exactly one loss bucket:
+
+| Bucket | Meaning |
+|---|---|
+| `absent_classification` | taxid never appears in `<ds>_merged_classification.tsv` (classifier DB gap / unmappable k-mers) |
+| `classified_no_assembly` | classified, but no row in `output/matched_assemblies.tsv` (taxonomy → genome lookup failed; reference-store gap or accession/filename mismatch) |
+| `assembly_no_coverage` | matched to an assembly that has no row in `merged_coverage_statistics.tsv` (never mapped) |
+| `assembly_zero_reads` | coverage row exists but `numreads == 0` (mapping failed, e.g. high mutation rate) |
+| `assembly_with_reads` | reads mapped to the matched assembly — recallable by the m-stats pipeline; any further loss is score/level gating |
+
+Outputs (in `--output-dir`):
+
+| File | Description |
+|---|---|
+| `recall_gap_per_taxid.tsv` | One row per `(data_set, taxid)`: `reads_simulated`, `mutation_rate`, `bucket`, `in_classification`, `classifier_uniq_reads`, `matched_accession`, `mapped_reads`, plus `has_*_file` flags for missing inputs |
+| `recall_gap_per_dataset.tsv` | Bucket `count` / `share` per dataset |
+| `recall_gap_summary.tsv` | Bucket `count` / `share` over all input taxa |
+| `recall_gap_buckets.png` | Overall bucket shares and stacked shares by mutation-rate bin (skipped with `--no-plot`) |
+
+Usage: `python -m deployment.model_evaluation.analysis_scripts.diagnose_recall_gap --study-output <dir> --output-dir <dir> [--limit N] [--no-plot]`.
+
 ### `test_datasets_input_df.tsv`
 
 Merged input summary for all test datasets. Columns: `sample`, `taxid`, `reads`, `mutation_rate`, `order`, `family`, `genus`, `data_set`, `found_in_recall_filter`, `found_in_fixed_filter`.
@@ -276,7 +327,7 @@ One row per test dataset.
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `recall_baseline` | float | Raw recall |
+| `recall_baseline` | float | Classification-aware baseline recall (see [Recall definitions](#recall-definitions-shared-by-both-pipelines)) |
 | `precision_fixed` | float | Clade precision after fixed filter (max 12 taxids, distance threshold 0.6) |
 | `precision_clade_post` | float | Clade precision after all cleanup (recall filter + cross-hit cleanup + composition prediction) |
 | `data_set` | str | Dataset name |
@@ -293,13 +344,15 @@ One row per test dataset with ~39+ columns:
 - `precision_clade_post_cleanup` — clade precision after cross-hit cleanup
 - `precision_clade_fixed` — clade precision after fixed filter (min_dist=0.6, max 12 taxids)
 
-**Recall metrics:**
-- `recall_baseline` — |output ∩ input| / |input|
-- `recall_baseline_cov_filtered` — after coverage > 0 filter
-- `recall_clade_pre_cleanup` — clade recall before cross-hit cleanup
-- `recall_clade_post_cleanup` — clade recall after cross-hit cleanup
-- `recall_after_recall_filter` — recall after applying the predicted recall cutoff
-- `recall_fixed_max_12` — recall after fixed filter
+**Recall metrics** (definitions in [Recall definitions](#recall-definitions-shared-by-both-pipelines)):
+- `recall_baseline` — classification-aware: best-matched leaves ∪ classifier-detected taxids (`uniq_reads > 0`)
+- `recall_baseline_assembly` — assembly-based, best-matched leaves (zero-coverage included)
+- `recall_baseline_cov_filtered` — assembly-based, best-matched leaves with coverage > 0
+- `recall_baseline_classification` — classifier-only
+- `recall_clade_pre_cleanup` — clade recall before cross-hit cleanup (assembly-based)
+- `recall_clade_post_cleanup` — clade recall after cross-hit cleanup (assembly-based)
+- `recall_after_recall_filter` — recall after applying the predicted recall cutoff (assembly-based)
+- `recall_fixed_max_12` — recall after fixed filter (assembly-based)
 
 **Cross-hit metrics:**
 - `predicted_cross_hits` — number of cross-hits detected by model

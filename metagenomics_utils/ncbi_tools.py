@@ -325,11 +325,10 @@ def compare_lineages(lineage1: str | None, lineage2: str | None) -> tuple[float,
     levels1 = lineage1.split("; ")
     levels2 = lineage2.split("; ")
     min_length = min(len(levels1), len(levels2))
-    max_length = max(len(levels1), len(levels2))
     score = 0
     level = None
     for i in range(min_length):
-        if i < min_length and levels1[i] == levels2[i]:
+        if levels1[i] == levels2[i]:
             score += 1
             if i < len(NCBI_TAXONOMY_LEVELS):
                 level = NCBI_TAXONOMY_LEVELS[i]
@@ -337,9 +336,9 @@ def compare_lineages(lineage1: str | None, lineage2: str | None) -> tuple[float,
                 level = f"level_{i + 1}"
         else:
             break
-    if max_length == 0:
-        return 0.0, None
-    return score / (len(levels1)), level
+    if min_length == 0:
+        return 0.0, level
+    return score / min_length, level
 
 
 @dataclass

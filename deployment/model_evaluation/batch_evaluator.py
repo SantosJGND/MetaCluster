@@ -230,6 +230,8 @@ class BatchEvaluator:
                     "precision_clade_fixed": r.precision.clade_precision_fixed,
                     "recall_baseline": r.recall.recall_raw,
                     "recall_baseline_cov_filtered": r.recall.recall_cov_filtered,
+                    "recall_baseline_assembly": r.recall.recall_assembly_raw,
+                    "recall_baseline_classification": r.recall.recall_classification_raw,
                     "recall_clade_pre_cleanup": r.recall.clade_recall_pre_cleanup,
                     "recall_clade_post_cleanup": r.recall.clade_recall_post_cleanup,
                     "recall_after_recall_filter": r.recall.recall_filtered_leaves,

@@ -86,6 +86,8 @@ class PrecisionMetrics:
 class RecallMetrics:
     recall_raw: float = 0.0
     recall_cov_filtered: float = 0.0
+    recall_assembly_raw: float = 0.0
+    recall_classification_raw: float = 0.0
     clade_recall_pre_cleanup: float = 0.0
     clade_recall_post_cleanup: float = 0.0
     recall_filtered_leaves: float = 0.0
@@ -97,7 +99,8 @@ class RecallMetrics:
 
     @classmethod
     def from_dict(cls, data: dict) -> "RecallMetrics":
-        return cls(**data)
+        field_names = set(cls.__dataclass_fields__)
+        return cls(**{k: v for k, v in data.items() if k in field_names})
 
 
 @dataclass
@@ -278,6 +281,8 @@ class BatchEvaluationResult:
         recall_cols = [
             "recall_baseline",
             "recall_baseline_cov_filtered",
+            "recall_baseline_assembly",
+            "recall_baseline_classification",
             "recall_clade_pre_cleanup",
             "recall_clade_post_cleanup",
             "recall_after_recall_filter",

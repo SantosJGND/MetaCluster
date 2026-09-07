@@ -41,6 +41,27 @@ from .result_models import (
 logger = logging.getLogger(__name__)
 
 
+def load_classifier_detected_taxids(study_output_filepath: str, data_set_name: str) -> set[int]:
+    """Return the taxids the classifier called with ``uniq_reads > 0`` for a dataset."""
+    cls_path = os.path.join(
+        study_output_filepath, data_set_name, "classification", f"{data_set_name}_merged_classification.tsv"
+    )
+    if not os.path.exists(cls_path):
+        logger.warning(f"Classification file not found for {data_set_name}: {cls_path}")
+        return set()
+    try:
+        df = pd.read_csv(cls_path, sep="\t")
+    except Exception as e:
+        logger.warning(f"Could not read classification for {data_set_name}: {e}")
+        return set()
+    if "taxid" not in df.columns:
+        return set()
+    if "uniq_reads" in df.columns:
+        reads = pd.to_numeric(df["uniq_reads"], errors="coerce").fillna(0)
+        df = df[reads > 0]
+    return set(int(t) for t in df["taxid"].dropna())
+
+
 class DatasetProcessor:
     """
     Processes a single dataset through the full evaluation pipeline.
@@ -226,11 +247,22 @@ class DatasetProcessor:
 
         fuzzy_raw, raw_best_match, fuzzy_cov = compute_purity(m_stats)
         overall_raw = compute_mstats_precision(m_stats, result.input_df)
-        recall_raw, recall_cov, _, _ = compute_recall(m_stats, result.input_df)
+
+        classifier_detected = load_classifier_detected_taxids(self.config.study_output_filepath, result.data_set)
+        recall_raw, recall_cov, _, _ = compute_recall(
+            m_stats, result.input_df, extra_detected_taxids=classifier_detected
+        )
+        recall_assembly, _, _, _ = compute_recall(m_stats, result.input_df)
+        input_taxids = set(result.input_df["taxid"].dropna().unique())
+        recall_classification = (
+            len(classifier_detected & input_taxids) / len(input_taxids) if input_taxids else 0.0
+        )
 
         result.recall = RecallMetrics(
             recall_raw=recall_raw,
             recall_cov_filtered=recall_cov,
+            recall_assembly_raw=recall_assembly,
+            recall_classification_raw=recall_classification,
         )
 
         result.precision = PrecisionMetrics(

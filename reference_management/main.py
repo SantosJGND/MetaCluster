@@ -66,6 +66,16 @@ def retrieve_assemblies(args):
     if "assembly_accession" not in df.columns or "assembly_file" not in df.columns:
         df["assembly_accession"] = None
         df["assembly_file"] = None
+
+    unmatched = df[df["assembly_accession"].isna() | df["assembly_file"].isna()]
+    if not unmatched.empty:
+        unmatched_path = os.path.join(mapping_references_dir, "unmatched_taxids.tsv")
+        unmatched.to_csv(unmatched_path, index=False, sep="\t")
+        print(
+            f"WARNING: {len(unmatched)}/{len(df)} classification taxids have no matched assembly "
+            f"(these cannot be recalled via read mapping). Saved to {unmatched_path}"
+        )
+
     df = df.dropna(subset=["assembly_accession", "assembly_file"])
     df.to_csv(os.path.join(mapping_references_dir, "matched_assemblies.tsv"), index=False, sep="\t")
 

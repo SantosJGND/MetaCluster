@@ -267,13 +267,25 @@ def compute_mstats_precision(m_stats_matrix: pd.DataFrame, input_summary: pd.Dat
     return correct / len(output_taxids)
 
 
-def compute_recall(clean_m_stats: pd.DataFrame, input_summary: pd.DataFrame) -> tuple[float, float, list, list]:
+def compute_recall(
+    clean_m_stats: pd.DataFrame,
+    input_summary: pd.DataFrame,
+    extra_detected_taxids: set[int] | None = None,
+) -> tuple[float, float, list, list]:
     """
     Compute all recall metrics.
+
+    `recall_raw` counts an input taxid as recalled if it is a best-matched
+    (non-trash) taxid in the m-stats matrix **or** — when `extra_detected_taxids`
+    is given (e.g. taxids the classifier called with ``uniq_reads > 0``) — if it
+    appears in that set. `recall_cov_filtered` stays strictly assembly-based,
+    requiring at least one best-matched row with `coverage > 0`.
 
     Args:
         clean_m_stats: Filtered m_stats matrix (non-spurious)
         input_summary: Input data summary with taxid information
+        extra_detected_taxids: Optional set of taxids detected by the classifier
+            (classification-aware recall).
 
     Returns:
         Tuple of (recall_raw, recall_cov_filtered, clade_recall, recall_filtered_leaves)
@@ -286,14 +298,19 @@ def compute_recall(clean_m_stats: pd.DataFrame, input_summary: pd.DataFrame) -> 
     clean_unique = clean_m_stats.dropna(subset=["best_match_taxid"])
     clean_unique = clean_unique[(clean_unique["is_trash"] == False) & (clean_unique["best_match_is_best"] == True)]
     output_taxids = set(clean_unique["best_match_taxid"].dropna().unique())
-    recall_raw = len(output_taxids & input_taxids) / unique_taxids
+    detected_taxids = set(output_taxids)
+    if extra_detected_taxids:
+        detected_taxids |= set(extra_detected_taxids)
+    recall_raw = len(detected_taxids & input_taxids) / unique_taxids
     clean_cov_filtered = clean_unique[(clean_unique["coverage"] > 0)]
     output_taxids_cov = set(clean_cov_filtered["best_match_taxid"].dropna().astype(int).unique())
     recall_cov = len(output_taxids_cov & input_taxids) / unique_taxids
     logger.debug(
-        f"Unique taxids in input: {unique_taxids}, Unique matches in clean m_stats: {len(clean_unique)}, Recall raw: {recall_raw}, Recall coverage filtered: {recall_cov}"
+        f"Unique taxids in input: {unique_taxids}, Unique matches in clean m_stats: {len(clean_unique)}, "
+        f"Classification-aware recalled: {len(detected_taxids & input_taxids)}, Recall raw: {recall_raw}, "
+        f"Recall coverage filtered: {recall_cov}"
     )
-    return recall_raw, recall_cov, sorted(output_taxids & input_taxids), sorted(output_taxids_cov & input_taxids)
+    return recall_raw, recall_cov, sorted(detected_taxids & input_taxids), sorted(output_taxids_cov & input_taxids)
 
 
 def compute_clade_recall(results_df: pd.DataFrame, input_summary: pd.DataFrame) -> float:

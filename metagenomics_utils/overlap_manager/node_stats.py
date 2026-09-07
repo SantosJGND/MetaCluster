@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from collections import Counter
 
@@ -11,6 +12,8 @@ from metagenomics_utils.overlap_manager.diversity import (
     shannon_diversity_from_list,
     skewness,
 )
+
+logger = logging.getLogger(__name__)
 
 ################################################# node stats and composition functions #################################################
 
@@ -275,6 +278,13 @@ def _compute_best_matches(m_stats, input_taxids, ncbi_wrapper, overlap_manager, 
     m_stats = m_stats.drop_duplicates(subset=["assid"])
     m_stats = dataframe_update_with_lineage(m_stats, ncbi_wrapper)
 
+    missing_lineages = [t for t in input_taxids if t not in ncbi_wrapper.lineages]
+    if missing_lineages:
+        logger.warning(
+            f"{len(missing_lineages)} input taxids missing from lineage cache "
+            f"(lineage-based matching scores 0.0 for them): {sorted(missing_lineages)[:10]}{'...' if len(missing_lineages) > 10 else ''}"
+        )
+
     # mark one best match per group
     groups = []
     m_stats["best_match_is_best"] = False
@@ -284,8 +294,6 @@ def _compute_best_matches(m_stats, input_taxids, ncbi_wrapper, overlap_manager, 
         ).reset_index(drop=True)
         found = False
         for ix, row in group.iterrows():
-            if row["coverage"] == 0.0:
-                continue
             if ncbi_wrapper.level_is_below(row["best_match_level"], NCBITaxonomistWrapper.TAX_SPECIES):
                 continue
             if not found:
@@ -738,11 +746,23 @@ def find_assembly_mapping(row, stats_matrix):
     return row
 
 
+def _equal_taxid(a, b) -> bool:
+    """Compare taxids robustly across int/float/str representations."""
+    if pd.isna(a) or pd.isna(b):
+        return False
+    try:
+        return int(a) == int(b)
+    except (TypeError, ValueError):
+        return str(a) == str(b)
+
+
 def find_best_match(taxid1, taxid_list, ncbi_wrapper: NCBITaxonomistWrapper):
     best_taxid = None
     best_level = None
     best_score = 0.0
     for taxid2 in taxid_list:
+        if _equal_taxid(taxid1, taxid2):
+            return taxid2, ncbi_wrapper.TAX_SPECIES, 1.0
         score, level = ncbi_wrapper.compare_lineages_relative(taxid2, taxid1)
         if level is not None and score > best_score:
             best_level = level

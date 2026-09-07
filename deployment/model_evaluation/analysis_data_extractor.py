@@ -47,13 +47,33 @@ logger = logging.getLogger(__name__)
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Extract structured analysis data from simulation outputs")
-    parser.add_argument("--study-output", type=str, required=True, help="Path to study output directory")
-    parser.add_argument("--ncbi-db", type=str, required=True, help="Path to NCBI taxonomy database (taxa.db)")
+    parser.add_argument(
+        "--study-output", type=str, default=None, help="Path to study output directory (not needed with --replay-recall)"
+    )
+    parser.add_argument(
+        "--ncbi-db", type=str, default=None, help="Path to NCBI taxonomy database (taxa.db) (not needed with --replay-recall)"
+    )
     parser.add_argument("--output-dir", type=str, required=True, help="Directory to save analysis outputs")
     parser.add_argument("--cross-hit-threshold", type=float, default=0.3, help="Cross-hit threshold (default: 0.3)")
     parser.add_argument("--min-taxonomic-score", type=float, default=0.7, help="Minimum taxonomic score (default: 0.7)")
     parser.add_argument(
         "--explanatory", action="store_true", help="Run explanatory analysis: mixed-effects model on TP read counts"
+    )
+    parser.add_argument(
+        "--replay-recall",
+        type=str,
+        default=None,
+        metavar="RECALL_DIR",
+        help="Replay recall probability surfaces from a saved explanatory/recall_model directory "
+        "(no refitting, no study scan) and exit.",
+    )
+    parser.add_argument(
+        "--replay-order-mode",
+        type=str,
+        choices=["reference", "average"],
+        default="reference",
+        help="Order handling for replay surfaces: 'reference' (most frequent order only) or "
+        "'average' (mean across taxonomic orders). Default: reference.",
     )
     return parser.parse_args()
 
@@ -111,6 +131,24 @@ def load_classifier_map(study_output_filepath: str, dataset: str) -> pd.DataFram
     else:
         df["classifiers"] = "unclassified"
     return df[["taxid", "classifiers"]].dropna(subset=["taxid"])
+
+
+def load_classifier_detected_taxids(study_output_filepath: str, dataset: str) -> set[int]:
+    """Taxids the classifier called with ``uniq_reads > 0`` (classification-aware recall evidence)."""
+    cls_path = os.path.join(study_output_filepath, dataset, "classification", f"{dataset}_merged_classification.tsv")
+    if not os.path.exists(cls_path):
+        return set()
+    try:
+        df = pd.read_csv(cls_path, sep="\t")
+    except Exception as e:
+        logger.warning(f"Could not read classification for {dataset}: {e}")
+        return set()
+    if "taxid" not in df.columns:
+        return set()
+    if "uniq_reads" in df.columns:
+        reads = pd.to_numeric(df["uniq_reads"], errors="coerce").fillna(0)
+        df = df[reads > 0]
+    return set(int(t) for t in df["taxid"].dropna())
 
 
 def compute_per_classifier_recall(
@@ -285,9 +323,13 @@ def process_dataset(
     cross_hit_count = int((m_stats["is_crosshit"] == True).sum())
     spurious_count = int((m_stats["is_trash"] == True).sum())
 
-    recall_raw, recall_cov, _, _ = compute_recall(m_stats, input_df)
-
     classifier_map = load_classifier_map(study_output_filepath, dataset)
+    classifier_detected = load_classifier_detected_taxids(study_output_filepath, dataset)
+
+    recall_raw, recall_cov, _, _ = compute_recall(m_stats, input_df, extra_detected_taxids=classifier_detected)
+    recall_assembly, _, _, _ = compute_recall(m_stats, input_df)
+    recall_classification = len(classifier_detected & input_taxids) / len(input_taxids) if input_taxids else 0.0
+
     per_classifier_records = compute_per_classifier_recall(m_stats, classifier_map, input_taxids)
 
     raw_size = len(m_stats)
@@ -303,6 +345,8 @@ def process_dataset(
         "spurious_count": spurious_count,
         "overall_recall": recall_raw,
         "recall_cov_filtered": recall_cov,
+        "recall_assembly": recall_assembly,
+        "recall_classification": recall_classification,
         "last_best_match_relindex": metric_relindex,
     }
 
@@ -314,7 +358,7 @@ def process_dataset(
 
     classifier_hit_records = collect_precision_hits(m_stats, classifier_map, dataset)
 
-    recall_records = collect_recall_data(m_stats, input_df, dataset, ncbi_wrapper)
+    recall_records = collect_recall_data(m_stats, input_df, dataset, ncbi_wrapper, classifier_detected)
 
     return per_dataset, per_classifier_records, tp_hit_records, classifier_hit_records, recall_records
 
@@ -324,10 +368,14 @@ def collect_recall_data(
     input_df: pd.DataFrame,
     dataset_name: str,
     ncbi_wrapper: NCBITaxonomistWrapper,
+    classifier_detected_taxids: set[int] | None = None,
 ) -> list[dict]:
     tp_taxids: set[int] = set()
     if not m_stats.empty and "best_match_is_best" in m_stats.columns:
-        tp_taxids = set(m_stats.loc[m_stats["best_match_is_best"] == True, "best_match_taxid"].dropna().unique())
+        tp_taxids = set(
+            int(t) for t in m_stats.loc[m_stats["best_match_is_best"] == True, "best_match_taxid"].dropna().unique()
+        )
+    classifier_taxids: set[int] = set(classifier_detected_taxids or set())
 
     records = []
     for _, row in input_df.iterrows():
@@ -336,6 +384,8 @@ def collect_recall_data(
             continue
         tid = int(tid)
         order = str(ncbi_wrapper.get_level(tid, "order") or "unclassified")
+        recalled_assembly = tid in tp_taxids
+        recalled_classification = tid in classifier_taxids
         records.append(
             {
                 "data_set": dataset_name,
@@ -343,7 +393,9 @@ def collect_recall_data(
                 "reads_simulated": int(row.get("reads", 0)),
                 "mutation_rate": float(row.get("mutation_rate", float("nan"))),
                 "order": order,
-                "recalled": int(tid in tp_taxids),
+                "recalled": int(recalled_assembly or recalled_classification),
+                "recalled_assembly": int(recalled_assembly),
+                "recalled_classification": int(recalled_classification),
             }
         )
     return records
@@ -602,45 +654,191 @@ def plot_recall_calibration(results: dict, output_dir: str):
     plt.close()
 
 
-def plot_recall_surface(results: dict, output_dir: str):
-    result = list(results.values())[0]
-    df = result._fit_data
-    mr_grid = np.linspace(df["mutation_rate"].min(), df["mutation_rate"].max(), 50)
-    lr_grid = np.linspace(df["log_reads"].min(), df["log_reads"].max(), 50)
+GRID_SIZE = 50
+
+
+def _recall_surface_grid(recall_df):
+    """Build the 50×50 prediction grid (mutation_rate × log_reads) for a recall surface.
+
+    ``recall_df`` must contain ``log_reads`` and ``mutation_rate`` (numeric) and a
+    categorical ``order`` column (used as the training order categories, most
+    frequent first).
+
+    Returns ``(grid_df, mr_grid, lr_grid, order_levels)``.
+    """
+    mr_grid = np.linspace(recall_df["mutation_rate"].min(), recall_df["mutation_rate"].max(), GRID_SIZE)
+    lr_grid = np.linspace(recall_df["log_reads"].min(), recall_df["log_reads"].max(), GRID_SIZE)
     mr_mesh, lr_mesh = np.meshgrid(mr_grid, lr_grid)
 
-    order_levels = df["order"].value_counts().index.tolist()
-    ref_order = order_levels[0] if order_levels else "unclassified"
+    order_levels = recall_df["order"].value_counts().index.tolist()
 
     grid_df = pd.DataFrame(
         {
             "log_reads": lr_mesh.ravel(),
             "mutation_rate": mr_mesh.ravel(),
-            "order": ref_order,
+            "order": order_levels[0] if order_levels else "unclassified",
         }
     )
 
-    for col in df.columns:
+    for col in recall_df.columns:
         if col not in grid_df.columns and col != "log_reads":
-            if pd.api.types.is_numeric_dtype(df[col]) and col not in ["recalled", "data_set", "taxid"]:
-                grid_df[col] = df[col].median()
+            if pd.api.types.is_numeric_dtype(recall_df[col]) and col not in [
+                "recalled",
+                "recalled_assembly",
+                "recalled_classification",
+                "data_set",
+                "taxid",
+            ]:
+                grid_df[col] = recall_df[col].median()
 
-    for label, result in results.items():
-        try:
-            grid_df["pred"] = result.predict(grid_df)
-            prob = grid_df["pred"].values.reshape(50, 50)
-        except Exception:
-            prob = np.zeros((50, 50))
+    return grid_df, mr_grid, lr_grid, order_levels
 
-    fig, ax = plt.subplots(figsize=(8, 6))
-    im = ax.contourf(lr_grid, mr_grid, prob.T, levels=20, cmap="viridis")
-    plt.colorbar(im, ax=ax, label="Predicted recall probability")
-    ax.set_xlabel("log(reads_simulated + 1)")
-    ax.set_ylabel("Mutation rate")
-    ax.set_title(f"Recall probability (order={ref_order})")
+
+def _compute_surface_predictions(
+    predict_fn, grid_df, mr_grid, lr_grid, order_levels, order_mode: str = "reference"
+) -> tuple[np.ndarray, str]:
+    """Compute predicted recall probability surfaces from a predict function.
+
+    ``predict_fn(grid_df_with_single_order)`` must return an array of probabilities
+    of length ``GRID_SIZE**2`` aligned with ``grid_df`` rows.
+
+    - ``order_mode="reference"`` (historical behaviour): evaluate at the most
+      frequent training order.
+    - ``order_mode="average"``: evaluate at every training order and return their
+      arithmetic mean (average across taxonomic classes).
+
+    Returns ``(prob_2d, title_label)``. Prediction failures fall back to zeros
+    (matching the prior best-effort behaviour).
+    """
+    order_mode = (order_mode or "reference").lower()
+    n = len(mr_grid)
+    if order_mode == "average":
+        n_orders = max(len(order_levels), 1)
+        prob = np.zeros((n, n))
+        for order in order_levels:
+            try:
+                prob += np.reshape(np.asarray(predict_fn(grid_df.assign(order=order))), (n, n))
+            except Exception:
+                pass
+        prob /= n_orders
+        return prob, f"avg recall over {n_orders} orders"
+    ref_order = grid_df["order"].iat[0]
+    try:
+        prob = np.reshape(np.asarray(predict_fn(grid_df)), (n, n))
+    except Exception:
+        prob = np.zeros((n, n))
+    return prob, f"order={ref_order}"
+
+
+def _render_surface(prob_by_label: dict, mr_grid, lr_grid, output_dir: str):
+    """Render one contour panel per (variant -> surface) entry: recall_probability_surface.png."""
+    labels = list(prob_by_label)
+    fig, axes = plt.subplots(1, len(labels), figsize=(8 * len(labels), 6), squeeze=False)
+    for ax, label in zip(axes[0], labels):
+        prob, title = prob_by_label[label]
+        im = ax.contourf(lr_grid, mr_grid, prob.T, levels=20, cmap="viridis")
+        plt.colorbar(im, ax=ax, label="Predicted recall probability")
+        ax.set_xlabel("log(reads_simulated + 1)")
+        ax.set_ylabel("Mutation rate")
+        ax.set_title(f"{label} — {title}")
     plt.tight_layout()
     plt.savefig(os.path.join(output_dir, "recall_probability_surface.png"), dpi=150)
     plt.close()
+
+
+def plot_recall_surface(results: dict, output_dir: str, order_mode: str = "reference"):
+    """Contour plots of predicted recall probability vs read depth and mutation rate.
+
+    One panel per fitted GEE formula variant (``results[label]._fit_data`` supplies
+    the grid ranges and training order categories).
+    """
+    recall_df = next(iter(results.values()))._fit_data
+    grid_df, mr_grid, lr_grid, order_levels = _recall_surface_grid(recall_df)
+
+    prob_by_label = {}
+    for label, result in results.items():
+        prob, title = _compute_surface_predictions(
+            result.predict, grid_df, mr_grid, lr_grid, order_levels, order_mode
+        )
+        prob_by_label[label] = (prob, title)
+
+    _render_surface(prob_by_label, mr_grid, lr_grid, output_dir)
+
+
+def _load_recall_coefs(summary_path: str) -> pd.Series:
+    """Load the ``coef`` column from a ``recall_variant_{label}_summary.tsv`` keyed by term name."""
+    coef_df = pd.read_csv(summary_path, sep="\t")
+    term_col = coef_df.columns[0]
+    return pd.Series(coef_df["coef"].values, index=coef_df[term_col].astype(str))
+
+
+def _replay_recall_surface(recall_df, recall_dir, label, order_mode, grid_df, mr_grid, lr_grid, order_levels):
+    """Compute one variant's replay surface from the saved summary (no refit).
+
+    ``label`` must be a known RECALL_FORMULAS key. The design matrix is rebuilt via
+    ``patsy.build_design_matrices`` with the training data's ``design_info`` so the
+    treatment coding (categories, reference level) matches the fitted GEE.
+    """
+    label = str(label).upper()
+    try:
+        from patsy import build_design_matrices, dmatrices
+    except ImportError:
+        logger.error("patsy is required to replay recall surfaces (part of statsmodels)")
+        raise
+    summary_path = os.path.join(recall_dir, f"recall_variant_{label}_summary.tsv")
+    coef = _load_recall_coefs(summary_path)
+    design_info = dmatrices(RECALL_FORMULAS[label], recall_df, return_type="dataframe")[1].design_info
+
+    def predict(g):
+        design = build_design_matrices([design_info], g, return_type="dataframe")[0]
+        cols = [c for c in coef.index if c in design.columns]
+        lp = design[cols].values @ coef[cols].values
+        return 1.0 / (1.0 + np.exp(-lp))
+
+    return _compute_surface_predictions(predict, grid_df, mr_grid, lr_grid, order_levels, order_mode)
+
+
+def plot_recall_surface_from_saved(
+    recall_dir: str,
+    output_dir: str | None = None,
+    variants: tuple[str, ...] = ("A", "B", "C"),
+    order_mode: str = "reference",
+):
+    """Reconstruct recall probability surfaces from a saved model directory (no refit).
+
+    Reads ``recall_data.tsv`` and ``recall_variant_{label}_summary.tsv`` — the exact
+    files the pipeline writes — and rebuilds the GEE design matrix via the training
+    data's ``design_info`` (``patsy``), so predictions match the originally fitted
+    model. Supports ``order_mode="average"`` to average across taxonomic orders.
+    """
+    output_dir = output_dir or recall_dir
+    os.makedirs(output_dir, exist_ok=True)
+
+    recall_path = os.path.join(recall_dir, "recall_data.tsv")
+    if not os.path.exists(recall_path):
+        raise FileNotFoundError(f"Missing {recall_path}")
+    recall_df = pd.read_csv(recall_path, sep="\t")
+    recall_df["log_reads"] = np.log1p(recall_df["reads_simulated"])
+    grid_df, mr_grid, lr_grid, order_levels = _recall_surface_grid(recall_df)
+
+    prob_by_label = {}
+    for label in variants:
+        label = str(label).upper()
+        if label not in RECALL_FORMULAS:
+            logger.warning(f"Skipping variant {label}: unknown formula (known: {sorted(RECALL_FORMULAS)})")
+            continue
+        if not os.path.exists(os.path.join(recall_dir, f"recall_variant_{label}_summary.tsv")):
+            logger.warning(f"Skipping variant {label}: missing summary TSV")
+            continue
+
+        prob, title = _replay_recall_surface(recall_df, recall_dir, label, order_mode, grid_df, mr_grid, lr_grid, order_levels)
+        prob_by_label[label] = (prob, title)
+
+    if not prob_by_label:
+        logger.warning("No variants could be replayed; nothing plotted")
+        return
+    _render_surface(prob_by_label, mr_grid, lr_grid, output_dir)
+    logger.info(f"Replayed recall surfaces to {os.path.join(output_dir, 'recall_probability_surface.png')}")
 
 
 def save_model_summary(result, target_name: str, output_dir: str):
@@ -891,6 +1089,17 @@ def plot_precision_per_classifier(classifier_hit_df: pd.DataFrame, per_dataset_d
 
 def main():
     args = parse_args()
+
+    if args.replay_recall:
+        plot_recall_surface_from_saved(
+            recall_dir=args.replay_recall,
+            output_dir=args.output_dir,
+            order_mode=args.replay_order_mode,
+        )
+        return
+
+    if not args.study_output or not args.ncbi_db:
+        sys.exit("error: --study-output and --ncbi-db are required unless --replay-recall is given")
 
     study_output = args.study_output
     ncbi_db = args.ncbi_db
