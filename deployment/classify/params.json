@@ -49,5 +49,7 @@
     "map_to_matrix_bin": "path/to/clustering/mapping_to_matrix",
     "map_to_matrix_params": "-t 0.05 -f 0.01 -a -m 500000",
 
-    "minimum_uniq_reads": "1"
+    "minimum_uniq_reads": "1",
+    "min_uniq_reads": "1",
+    "fail_on_missing_assemblies": true
 }

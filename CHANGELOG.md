@@ -23,6 +23,12 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Fail-hard assembly validation gate** — `reference_management/main.py retrieve` gains `--min_uniq_reads` (default 1) and `--no_fail_on_missing` (fail-on-missing is the default). Every classified taxid with `uniq_reads >= min_uniq_reads` must resolve to an assembly via the local store or one round of NCBI fallback; otherwise `retrieve` writes `unmatched_classified_taxids.tsv`, logs the failure, and exits non-zero. `deployment/classify/classify.nf` threads `min_uniq_reads`/`fail_on_missing_assemblies` into its `ExtractReferenceSequences` process, so a dataset with unresolvable classified taxa fails before mapping and is never produced. Root-cause finding (dataset_0848_plan, all 8 input taxa resolved locally in ~4 s) confirmed the drop was caused by a store mismatch at runtime, not the matching code — the gate turns that silent 0-recall output into an explicit failure.
+- **Two-step deployment scripts** — `deployment/workflows/deploy_workflows.sh` (combined) is superseded by `deploy_simulate.sh` and `deploy_classify_map.sh`: independent, resumable simulation and classify/map/map steps; remote `/home/insaflu/...` paths are overridable via env vars (`TABLES_DIR`, `OUTPUT_DIR`, `PARAMS_FILE`, `DEPLOYMENT_HOME`, `CONDA_PATH`, `VENV_PATH`, `PROJECT_PYTHONPATH`).
+- **Incomplete-dataset accounting** — `deploy_classify_map.sh` records classify failures in `{output_dir}/incomplete_datasets.tsv`; `analysis_data_extractor.load_incomplete_datasets()` reads it and reports an explicit `incomplete`/`incomplete_datasets` bucket in `pipeline_metadata.tsv`. Incomplete datasets never produce output and are excluded from final recall/precision analysis.
+
 ### Fixed
 
 - **`OverlapManager.new_tree_from_distance_matrix()` empty m_stats_matrix** (`manager.py:310`) — added `max(1, ...)` guard around `int(n_rows * max_proportion)` to prevent `index_keep = 0` truncation when `max_proportion * n_rows < 1.0`

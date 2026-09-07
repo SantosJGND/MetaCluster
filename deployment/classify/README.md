@@ -91,6 +91,31 @@ nextflow run classify.nf -profile conda \
     └── ...
 ```
 
+# Strict Assembly Validation Gate
+
+Before reads are mapped, `ExtractReferenceSequences` must find an assembly for
+every classified taxid with `uniq_reads >= min_uniq_reads`. Lookup order:
+local assembly store, then one round of NCBI fallback. Taxids that cannot be
+matched after both attempts fail the dataset:
+
+- `--fail_on_missing_assemblies true` (default): the workflow errors, so the
+  dataset produces no output and is treated as **incomplete** (its name is
+  appended to `{output_dir}/incomplete_datasets.tsv` by
+  `deployment/workflows/deploy_classify_map.sh`).
+- `--fail_on_missing_assemblies false`: missing assemblies are reported in
+  `unmatched_classified_taxids.tsv` but the dataset still maps what it can
+  (diagnostic / escaping hatch).
+
+Incomplete datasets are **excluded from the final analysis**: the analysis
+extractor reports them as an explicit `incomplete` bucket in
+`pipeline_metadata.tsv` and never counts them in recall/precision denominators.
+
+Config (`params.json`):
+```json
+"min_uniq_reads": 1,
+"fail_on_missing_assemblies": true
+```
+
 # Software Column
 
 Each classifier adds a `software` column to identify the source:
@@ -106,16 +131,20 @@ This allows tracking which classifier(s) identified each taxid in the merged res
 
 # Complete Workflow
 
-To run the full benchmark pipeline:
+Deployment is split into two independent, resumable steps so a validation gate
+runs before mapping (see `deployment/workflows/deploy_simulate.sh` and
+`deployment/workflows/deploy_classify_map.sh`).
 
-1. **Simulate reads:**
+1. **Simulate reads (`deploy_simulate.sh`):**
+
    ```bash
    nextflow run deployment/simulation/simulate.nf -profile conda \
      --input_table /path/to/input_table.tsv \
      --output_dir /path/to/simulation_output
    ```
 
-2. **Classify and cluster:**
+2. **Classify, validate assemblies, and cluster (`deploy_classify_map.sh`):**
+
    ```bash
    nextflow run deployment/classify/classify.nf -profile conda \
      --reads /path/to/simulation_output/{dataset_name}/fastq \

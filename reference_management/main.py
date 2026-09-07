@@ -35,6 +35,18 @@ def get_args():
     retrieve_parser.add_argument("--include_term", type=str, default=None, help="Term to include in NCBI search.")
     retrieve_parser.add_argument("--exclude_term", type=str, default=None, help="Term to exclude from NCBI search.")
 
+    retrieve_parser.add_argument(
+        "--min_uniq_reads",
+        type=int,
+        default=1,
+        help="Minimum uniq_reads for a classified taxid to require a matched assembly (default: 1).",
+    )
+    retrieve_parser.add_argument(
+        "--no_fail_on_missing",
+        action="store_true",
+        help="Do not exit non-zero when classified taxids (uniq_reads >= --min_uniq_reads) lack a matched assembly.",
+    )
+
     # Subcommand: check
     check_parser = subparsers.add_parser("check", help="Check if mapping ids can be retrieved.")
     check_parser.add_argument("--input_table", type=str, required=True, help="Path to the classification output file.")
@@ -58,6 +70,8 @@ def retrieve_assemblies(args):
     classification_output_path = args.input_table
     assembly_store = args.assembly_store
     mapping_references_dir = args.mapping_references_dir
+    min_uniq_reads = args.min_uniq_reads
+    fail_on_missing = not args.no_fail_on_missing
 
     assembly_store = AssemblyStore(assembly_store)
     df = assembly_store.match_taxid_to_assembly(classification_output_path)
@@ -76,8 +90,30 @@ def retrieve_assemblies(args):
             f"(these cannot be recalled via read mapping). Saved to {unmatched_path}"
         )
 
-    df = df.dropna(subset=["assembly_accession", "assembly_file"])
-    df.to_csv(os.path.join(mapping_references_dir, "matched_assemblies.tsv"), index=False, sep="\t")
+    # Fail-hard validation: every classified taxid with uniq_reads >= min_uniq_reads
+    # must have a matched assembly (returned by the local store or the NCBI fallback).
+    qualified = df
+    if "uniq_reads" in df.columns:
+        qualified = qualified[qualified["uniq_reads"] >= min_uniq_reads]
+
+    missing_classified = qualified[qualified["assembly_accession"].isna() | qualified["assembly_file"].isna()]
+    if not missing_classified.empty:
+        missing_path = os.path.join(mapping_references_dir, "unmatched_classified_taxids.tsv")
+        missing_classified.to_csv(missing_path, index=False, sep="\t")
+        print(
+            f"FAIL: {len(missing_classified)}/{len(qualified)} classified taxids "
+            f"(uniq_reads >= {min_uniq_reads}) have no matched assembly. "
+            f"Saved to {missing_path}"
+        )
+    else:
+        print(f"Assembly validation: all {len(qualified)} classified taxids matched")
+
+    df.dropna(subset=["assembly_accession", "assembly_file"]).to_csv(
+        os.path.join(mapping_references_dir, "matched_assemblies.tsv"), index=False, sep="\t"
+    )
+
+    if fail_on_missing and not missing_classified.empty:
+        sys.exit(1)
 
 
 def check_assemblies_exist(args):

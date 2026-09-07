@@ -16,5 +16,8 @@
     "wgsim_conda_env": "path/to/simulate_env",
 
     "mess_conda_env": "path/to/mess_env",
-    "minimap2_conda_env": "path/to/mapping_env"
+    "minimap2_conda_env": "path/to/mapping_env",
+
+    "min_uniq_reads": 1,
+    "fail_on_missing_assemblies": true
 }

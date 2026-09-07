@@ -95,6 +95,27 @@ def discover_datasets(study_output_filepath: str) -> list[str]:
     return valid
 
 
+def load_incomplete_datasets(study_output_filepath: str) -> list[str]:
+    """
+    Load datasets recorded as incomplete (failed pipeline execution, e.g. the
+    fail-hard assembly validation gate) from ``study_output/incomplete_datasets.tsv``.
+
+    These datasets produce no output folder and must NOT count in the final
+    analysis. Columns: dataset \\t stage \\t reason \\t timestamp.
+    """
+    incomplete_path = os.path.join(study_output_filepath, "incomplete_datasets.tsv")
+    if not os.path.exists(incomplete_path):
+        return []
+    try:
+        df = pd.read_csv(incomplete_path, sep="\t", usecols=[0], header=0, names=["dataset"])
+    except Exception as e:
+        logger.warning(f"Could not parse {incomplete_path}: {e}")
+        return []
+    names = sorted(df["dataset"].dropna().astype(str).str.strip().tolist())
+    logger.info(f"Loaded {len(names)} incomplete datasets from {incomplete_path}")
+    return names
+
+
 def collect_all_input_taxids(study_output_filepath: str, datasets: list[str]) -> list[int]:
     all_taxids: set[int] = set()
     for ds in datasets:
@@ -1141,6 +1162,13 @@ def main():
     if study_gaps:
         logger.warning(f"{len(study_gaps)} folders missing required files (study gaps): {', '.join(study_gaps[:10])}")
 
+    incomplete_names = load_incomplete_datasets(study_output)
+    if incomplete_names:
+        logger.warning(
+            f"{len(incomplete_names)} incomplete datasets (recorded in incomplete_datasets.tsv, "
+            f"not counted in the final analysis)"
+        )
+
     logger.info("Initializing NCBI TaxonomistWrapper and resolving lineages...")
     ncbi_wrapper = NCBITaxonomistWrapper(db=ncbi_db)
     # Both input taxids and matched-assembly (leaf) taxids need lineages: best-match scoring
@@ -1178,6 +1206,9 @@ def main():
             rows.append(("skipped_datasets", ";".join(skipped_names)))
         if failed_messages:
             rows.append(("failed_datasets", ";".join(failed_messages)))
+        if incomplete_names:
+            rows.append(("incomplete", len(incomplete_names)))
+            rows.append(("incomplete_datasets", ";".join(incomplete_names)))
         if study_gaps:
             rows.append(("study_gaps", len(study_gaps)))
             rows.append(("study_gap_datasets", ";".join(study_gaps)))
@@ -1250,6 +1281,9 @@ def main():
         ("failed", failed),
         ("skipped", skipped),
     ]
+    if incomplete_names:
+        metadata_rows.append(("incomplete", len(incomplete_names)))
+        metadata_rows.append(("incomplete_datasets", ";".join(incomplete_names)))
     if skipped_names:
         metadata_rows.append(("skipped_datasets", ";".join(skipped_names)))
     if failed_messages:
