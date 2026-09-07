@@ -108,6 +108,22 @@ def collect_all_input_taxids(study_output_filepath: str, datasets: list[str]) ->
     return sorted(all_taxids)
 
 
+def collect_all_matched_taxids(study_output_filepath: str, datasets: list[str]) -> list[int]:
+    """Taxids of matched assemblies (m-stats leaves) — these need lineages for best-match scoring."""
+    all_taxids: set[int] = set()
+    for ds in datasets:
+        matched_path = os.path.join(study_output_filepath, ds, "output", "matched_assemblies.tsv")
+        if not os.path.exists(matched_path):
+            continue
+        try:
+            df = pd.read_csv(matched_path, sep="\t", usecols=["taxid"])
+            all_taxids.update(int(t) for t in df["taxid"].dropna().unique())
+        except Exception as e:
+            logger.warning(f"Could not read matched assemblies for {ds}: {e}")
+    logger.info(f"Collected {len(all_taxids)} unique matched-assembly taxids across all datasets")
+    return sorted(all_taxids)
+
+
 def compute_relindex(m_stats: pd.DataFrame) -> float:
     if m_stats.empty:
         return float("nan")
@@ -1127,7 +1143,12 @@ def main():
 
     logger.info("Initializing NCBI TaxonomistWrapper and resolving lineages...")
     ncbi_wrapper = NCBITaxonomistWrapper(db=ncbi_db)
-    all_taxids = collect_all_input_taxids(study_output, datasets)
+    # Both input taxids and matched-assembly (leaf) taxids need lineages: best-match scoring
+    # (`compare_lineages_relative`) returns 0.0 for any taxid missing from the cache, so
+    # resolving only the inputs silently restricts matching to exact-taxid leaves.
+    all_taxids = sorted(
+        set(collect_all_input_taxids(study_output, datasets)) | set(collect_all_matched_taxids(study_output, datasets))
+    )
     ncbi_wrapper.resolve_lineages(all_taxids)
 
     per_dataset_records = []

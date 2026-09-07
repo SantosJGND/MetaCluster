@@ -250,6 +250,19 @@ def test_load_classifier_detected_taxids_filters_zero_reads(tmp_path):
     assert load_classifier_detected_taxids(str(tmp_path), "missing") == set()
 
 
+def test_collect_all_matched_taxids_reads_leaf_taxids(tmp_path):
+    from deployment.model_evaluation.analysis_data_extractor import collect_all_matched_taxids
+
+    for ds, taxids in {"ds1": [11676, 10359], "ds2": [10359, 2697049.0]}.items():
+        d = tmp_path / ds / "output"
+        d.mkdir(parents=True)
+        pd.DataFrame({"taxid": taxids, "assembly_accession": ["X"] * len(taxids)}).to_csv(
+            d / "matched_assemblies.tsv", sep="\t", index=False
+        )
+    (tmp_path / "ds3").mkdir()  # no output dir -> skipped silently
+    assert collect_all_matched_taxids(str(tmp_path), ["ds1", "ds2", "ds3"]) == [10359, 11676, 2697049]
+
+
 def test_collect_recall_data_reports_assembly_and_classification(tmp_path):
     from deployment.model_evaluation.analysis_data_extractor import collect_recall_data
 
