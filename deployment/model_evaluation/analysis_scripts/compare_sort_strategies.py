@@ -28,7 +28,7 @@ from pathlib import Path
 import pandas as pd
 
 from deployment.model_evaluation.config import EvaluatorConfig
-from deployment.model_evaluation.data_loader import DataLoader
+from deployment.model_evaluation.data_loader import DataLoader, passes_assembly_completeness
 from metagenomics_utils.overlap_manager.feature_transformer import RecallFeatureTransformer
 from deployment.model_evaluation.metrics import compute_recall
 
@@ -263,6 +263,9 @@ def run_comparison(
     sort_strategies: list[str],
     recall_models: list[str],
     target_recall: float,
+    require_complete_assemblies: bool = True,
+    min_uniq_reads: int = 1,
+    max_missing_pct: float = 5.0,
 ) -> pd.DataFrame:
     """
     Run sort_strategy x recall_model comparison.
@@ -278,6 +281,25 @@ def run_comparison(
     taxids_to_use = loader.get_taxids_to_use()
     training_folders = loader.get_training_folders()
     test_folders = loader.get_test_folders()
+
+    if require_complete_assemblies:
+        all_training = training_folders
+        training_folders = [
+            f
+            for f in training_folders
+            if passes_assembly_completeness(
+                config.study_output_filepath,
+                f,
+                min_uniq_reads=min_uniq_reads,
+                max_missing_pct=max_missing_pct,
+            )
+        ]
+        logger.info(
+            "Assembly-completeness gate ON: recall models trained on %d/%d complete training datasets "
+            "(precision/composition unaffected)",
+            len(training_folders),
+            len(all_training),
+        )
 
     logger.info("Collecting training matrices (%d folders) ...", len(training_folders))
     train_matrices = _collect_matrices(training_folders, config, ncbi)
@@ -662,6 +684,29 @@ def get_args():
     parser.add_argument("--tax_level", type=str, default="genus", help="Taxonomic level")
     parser.add_argument("--max_training", type=int, default=None, help="Max training datasets to use")
     parser.add_argument("--verbose", action="store_true", help="Verbose logging")
+    parser.add_argument(
+        "--require-complete-assemblies",
+        action="store_true",
+        default=True,
+        help="Train recall models only on datasets where every detected reference with "
+        "uniq_reads>=--min-uniq-reads are unmatched (<= --max-missing-refs-pct tolerated). Default: on.",
+    )
+    parser.add_argument(
+        "--allow-incomplete",
+        action="store_true",
+        help="Include datasets failing the assembly-completeness gate in recall model training "
+        "(equivalent to --no-require-complete-assemblies).",
+    )
+    parser.add_argument(
+        "--min-uniq-reads", type=int, default=1, help="Minimum uniq_reads for a detected taxid. Default: 1."
+    )
+    parser.add_argument(
+        "--max-missing-refs-pct",
+        type=float,
+        default=5.0,
+        help="Max tolerated percent of qualified taxids lacking a matched assembly before a dataset "
+        "fails the completeness gate (default: 5.0).",
+    )
     return parser.parse_args()
 
 
@@ -704,6 +749,9 @@ def main():
         sort_strategies=args.sort_strategies,
         recall_models=args.recall_models,
         target_recall=args.target_recall,
+        require_complete_assemblies=args.require_complete_assemblies and not args.allow_incomplete,
+        min_uniq_reads=args.min_uniq_reads,
+        max_missing_pct=args.max_missing_refs_pct,
     )
 
     if results_df.empty:

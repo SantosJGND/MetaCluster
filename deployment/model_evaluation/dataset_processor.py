@@ -24,6 +24,7 @@ from metagenomics_utils.overlap_manager.om_models import (
 )
 
 from .config import EvaluatorConfig, TrainedModels
+from .data_loader import passes_assembly_completeness
 from .exceptions import DataLoadError, OverlapManagerError, PredictionError
 from .metrics import (
     compute_clade_recall,
@@ -82,6 +83,8 @@ class DatasetProcessor:
         ncbi_wrapper: Any,
         input_tax_df: pd.DataFrame,
         taxids_to_use: pd.DataFrame,
+        min_uniq_reads: int = 1,
+        max_missing_pct: float = 5.0,
     ):
         """
         Initialize dataset processor.
@@ -92,10 +95,17 @@ class DatasetProcessor:
             ncbi_wrapper: NCBI TaxonomistWrapper instance
             input_tax_df: Input taxid DataFrame with lineage info
             taxids_to_use: Taxids to use for evaluation
+            min_uniq_reads: Minimum uniq_reads for a taxid to require a matched assembly.
+            max_missing_pct: Max tolerated percent of qualified taxids without a matched
+                assembly before the dataset is treated as incomplete (default 5.0).
         """
         self.config = config
         self.models = models
         self.ncbi = ncbi_wrapper
+        self.input_tax_df = input_tax_df
+        self.taxids_to_use = taxids_to_use
+        self.min_uniq_reads = min_uniq_reads
+        self.max_missing_pct = max_missing_pct
         self.input_tax_df = input_tax_df
         self.taxids_to_use = taxids_to_use
 
@@ -122,6 +132,12 @@ class DatasetProcessor:
                 input_df=input_summary,
                 sample=input_summary["sample"].iloc[0] if len(input_summary) > 0 else "",
                 input_taxid_count=int(input_summary["taxid"].nunique()),
+                assembly_complete=passes_assembly_completeness(
+                    self.config.study_output_filepath,
+                    data_set_name,
+                    min_uniq_reads=self.min_uniq_reads,
+                    max_missing_pct=self.max_missing_pct,
+                ),
             )
 
             m_stats_baseline = get_m_stats_matrix(

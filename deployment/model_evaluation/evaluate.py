@@ -203,6 +203,34 @@ def get_args():
     parser.add_argument("--mlflow-uri", type=str, default=None, help="MLflow tracking URI")
     parser.add_argument("--no-cache", action="store_true", help="Force recompute cached training data")
     parser.add_argument("--description", type=str, default="", help="Optional description for trained models")
+    parser.add_argument(
+        "--require-complete-assemblies",
+        action="store_true",
+        default=True,
+        help="Train the recall model and report recall summaries only on datasets passing the "
+        "assembly-completeness gate (at most --max-missing-refs-pct% of detected references "
+        "with uniq_reads>=--min-uniq-reads lack a matched assembly). "
+        "Precision/cross-hit/composition stay on all datasets. Default: on.",
+    )
+    parser.add_argument(
+        "--allow-incomplete",
+        action="store_true",
+        help="Include datasets failing the assembly-completeness gate in recall model training "
+        "(equivalent to --no-require-complete-assemblies).",
+    )
+    parser.add_argument(
+        "--min-uniq-reads",
+        type=int,
+        default=1,
+        help="Minimum uniq_reads for a detected taxid to require a matched assembly. Default: 1.",
+    )
+    parser.add_argument(
+        "--max-missing-refs-pct",
+        type=float,
+        default=5.0,
+        help="Max tolerated percent of qualified taxids (uniq_reads>=--min-uniq-reads) lacking a "
+        "matched assembly before a dataset fails the completeness gate (default: 5.0).",
+    )
 
     return parser.parse_args()
 
@@ -225,7 +253,7 @@ def main(args):
 
     from deployment.model_evaluation.batch_evaluator import BatchEvaluator
     from deployment.model_evaluation.config import EvaluatorConfig
-    from deployment.model_evaluation.data_loader import DataLoader
+    from deployment.model_evaluation.data_loader import DataLoader, passes_assembly_completeness
     from deployment.model_evaluation.logging_config import setup_logging
     from deployment.model_evaluation.models import MLflowTracker, ModelTrainer
     from deployment.model_evaluation.visualization import ResultVisualizer, generate_report
@@ -276,6 +304,24 @@ def main(args):
     training_folders = loader.get_training_folders()
     test_folders = loader.get_test_folders()
 
+    require_complete = args.require_complete_assemblies and not args.allow_incomplete
+    recall_training_folders = None
+    if require_complete:
+        recall_training_folders = [
+            f
+            for f in training_folders
+            if passes_assembly_completeness(
+                config.study_output_filepath,
+                f,
+                min_uniq_reads=args.min_uniq_reads,
+                max_missing_pct=args.max_missing_refs_pct,
+            )
+        ]
+        logger.info(
+            f"Assembly-completeness gate ON: recall model trained on {len(recall_training_folders)}/"
+            f"{len(training_folders)} complete training datasets; precision/composition keep all {len(training_folders)}"
+        )
+
     logger.info(f"Training datasets: {len(training_folders)}")
     logger.info(f"Test datasets: {len(test_folders)}")
 
@@ -284,6 +330,12 @@ def main(args):
             {
                 "n_training_datasets": len(training_folders),
                 "n_test_datasets": len(test_folders),
+                "n_recall_training_datasets": len(recall_training_folders)
+                if recall_training_folders is not None
+                else len(training_folders),
+                "n_recall_excluded_incomplete": (len(training_folders) - len(recall_training_folders))
+                if recall_training_folders is not None
+                else 0,
             }
         )
 
@@ -294,6 +346,7 @@ def main(args):
         input_tax_df=loader.get_input_tax_df(),
         taxids_to_use=loader.get_taxids_to_use(),
         use_cache=config.use_cache,
+        recall_folders=recall_training_folders,
     )
 
     trainer.train_models(training_folders)
@@ -319,6 +372,8 @@ def main(args):
         ncbi_wrapper=loader.get_ncbi_wrapper(),
         input_tax_df=loader.get_input_tax_df(),
         taxids_to_use=loader.get_taxids_to_use(),
+        min_uniq_reads=args.min_uniq_reads,
+        max_missing_pct=args.max_missing_refs_pct,
     )
 
     results = evaluator.evaluate(test_folders)
@@ -348,7 +403,7 @@ def main(args):
     evaluator.save_summary_statistics(results, str(config.analysis_output_filepath))
 
     logger.info("Generating visualizations...")
-    visualizer = ResultVisualizer(str(config.analysis_output_filepath))
+    visualizer = ResultVisualizer(str(config.analysis_output_filepath), require_complete_assemblies=require_complete)
     visualizer.plot_all(results)
 
     if config.generate_report:

@@ -32,6 +32,8 @@ class BatchEvaluator:
         ncbi_wrapper: any,
         input_tax_df: pd.DataFrame,
         taxids_to_use: pd.DataFrame | None = None,
+        min_uniq_reads: int = 1,
+        max_missing_pct: float = 5.0,
     ):
         """
         Initialize batch evaluator.
@@ -42,6 +44,9 @@ class BatchEvaluator:
             ncbi_wrapper: NCBI TaxonomistWrapper instance
             input_tax_df: Input taxid DataFrame
             taxids_to_use: Taxids to use for evaluation (optional, will use models.taxids_to_use if available)
+            min_uniq_reads: Minimum uniq_reads for a taxid to require a matched assembly.
+            max_missing_pct: Max tolerated percent of qualified taxids without a matched
+                assembly before the dataset is treated as incomplete (default 5.0).
         """
         self.config = config
         self.models = models
@@ -56,6 +61,8 @@ class BatchEvaluator:
             ncbi_wrapper=ncbi_wrapper,
             input_tax_df=input_tax_df,
             taxids_to_use=self.taxids_to_use,
+            min_uniq_reads=min_uniq_reads,
+            max_missing_pct=max_missing_pct,
         )
 
     def _resolve_taxids_to_use(self, provided_taxids: pd.DataFrame | None, models: TrainedModels) -> pd.DataFrame:
@@ -217,6 +224,7 @@ class BatchEvaluator:
                     "input_read_counts": r.input_read_counts,
                     "reads_simulated_per_class": r.reads_simulated_per_class,
                     "output_raw": r.output_raw,
+                    "assembly_complete": r.assembly_complete,
                     "output_taxid_count": r.output_taxid_count,
                     "output_cov_filtered": r.output_cov_filtered,
                     "predicted_clades_pre": r.predicted_clades_pre,
@@ -268,6 +276,7 @@ class BatchEvaluator:
                         "precision_fixed": r.precision.clade_precision_fixed,
                         "precision_clade_post": r.precision.clade_precision_post,
                         "data_set": r.data_set,
+                        "assembly_complete": r.assembly_complete,
                     }
                 )
 
@@ -301,6 +310,8 @@ class BatchEvaluator:
                     "skipped_count": len(skipped),
                     "errors": [str(e) for e in errors],
                     "failed_datasets": ";".join(str(e) for e in errors),
+                    "assembly_complete": sum(1 for r in results if r.assembly_complete),
+                    "assembly_incomplete": sum(1 for r in results if not r.assembly_complete),
                 },
             )
 

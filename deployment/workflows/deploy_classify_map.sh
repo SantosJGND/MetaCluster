@@ -3,8 +3,11 @@
 # Step 2 of 2: classify reads, merge results, map to references, cluster.
 # Run AFTER deploy_simulate.sh. Reads are consumed from $OUTPUT_DIR/<table>/fastq.
 #
-# Assembly validation is fail-hard: classify.nf fails the dataset when any
-# classified taxid (uniq_reads >= min_uniq_reads) has no matched assembly.
+# Assembly validation is fail-hard: classify.nf fails the dataset when more than
+# max_missing_references_pct (default 5%) of classified taxids
+# (uniq_reads >= min_uniq_reads) have no matched assembly. Datasets at or below
+# the threshold proceed with the matched subset; datasets above it are SKIPPED
+# (exit code 3, recorded as incomplete, excluded from analysis, not a failure).
 # Failed datasets are recorded in $OUTPUT_DIR/incomplete_datasets.tsv and are
 # EXCLUDED from the final analysis (they are not counted as completed runs).
 #
@@ -76,11 +79,18 @@ for TABLE in $(ls "$TABLES_DIR"); do
     --analysis_id "$ANALYSIS_ID" \
     -ansi-log false
     
-    if [ $? -ne 0 ]; then
-        echo "INCOMPLETE: classify/map failed for $ANALYSIS_ID (likely assembly validation or runtime error)"
-        printf '%s\tclassify\tassembly_validation_or_runtime_error\t%s\n' \
-        "$ANALYSIS_ID" "$(date -Iseconds)" >> "$INCOMPLETE_FILE"
-        FAILED=1
+    RET=$?
+    if [ $RET -ne 0 ]; then
+        if [ $RET -eq 3 ]; then
+            echo "SKIP: $ANALYSIS_ID excluded (>X% classified references lack a matched assembly)"
+            printf '%s\tclassify\ttoo_many_missing_references\t%s\n' \
+            "$ANALYSIS_ID" "$(date -Iseconds)" >> "$INCOMPLETE_FILE"
+        else
+            echo "INCOMPLETE: classify/map failed for $ANALYSIS_ID (likely assembly validation or runtime error)"
+            printf '%s\tclassify\tassembly_validation_or_runtime_error\t%s\n' \
+            "$ANALYSIS_ID" "$(date -Iseconds)" >> "$INCOMPLETE_FILE"
+            FAILED=1
+        fi
     else
         echo "OK: classify/map finished for $ANALYSIS_ID"
     fi

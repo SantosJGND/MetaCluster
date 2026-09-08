@@ -357,7 +357,7 @@ class TestDiagnoseRecallGap:
         coverage.to_csv(ds / "output" / "merged_coverage_statistics.tsv", sep="\t", index=False)
 
         out_dir = tmp_path / "diag"
-        rc = main(["--study-output", str(study), "--output-dir", str(out_dir), "--no-plot"])
+        rc = main(["--study-output", str(study), "--output-dir", str(out_dir), "--no-plot", "--allow-incomplete"])
         assert rc == 0
         per_taxid = pd.read_csv(out_dir / "recall_gap_per_taxid.tsv", sep="\t")
         assert len(per_taxid) == 5
@@ -424,3 +424,60 @@ class TestAssemblyStoreLocalLookup:
         from metagenomics_utils.ncbi_tools import Passport
 
         assert store.retrieve_local_assembly(Passport(taxid="1", accession="NC_1.1")) is None
+
+
+# ---------------------------------------------------------------------------
+# Assembly-completeness gate tolerance (passes_assembly_completeness)
+# ---------------------------------------------------------------------------
+
+
+def _write_gate_dataset(tmp_path, dataset, detected, matched):
+    ds = tmp_path / dataset
+    (ds / "classification").mkdir(parents=True)
+    (ds / "output").mkdir()
+    pd.DataFrame({"taxid": detected, "description": ["d"] * len(detected), "uniq_reads": [5] * len(detected)}).to_csv(
+        ds / "classification" / f"{dataset}_merged_classification.tsv", sep="\t", index=False
+    )
+    pd.DataFrame({"taxid": matched, "assembly_accession": ["NC_000001.1"] * len(matched)}).to_csv(
+        ds / "output" / "matched_assemblies.tsv", sep="\t", index=False
+    )
+
+
+def test_completeness_gate_tolerance(tmp_path):
+    from deployment.model_evaluation.data_loader import passes_assembly_completeness
+
+    study = tmp_path / "study"
+    # 10 qualified taxids with uniq_reads>=1, 2 unmatched -> 20% missing.
+    _write_gate_dataset(study, "ds_over", detected=range(1, 11), matched=range(1, 9))
+
+    assert not passes_assembly_completeness(str(study), "ds_over", min_uniq_reads=1, max_missing_pct=5.0)
+    assert passes_assembly_completeness(str(study), "ds_over", min_uniq_reads=1, max_missing_pct=20.0)
+
+
+def test_completeness_gate_exact_threshold_passes(tmp_path):
+    from deployment.model_evaluation.data_loader import passes_assembly_completeness
+
+    study = tmp_path / "study"
+    # 20 qualified, 1 unmatched -> exactly 5%: must pass (strictly-greater skip).
+    _write_gate_dataset(study, "ds_edge", detected=range(1, 21), matched=range(1, 20))
+    assert passes_assembly_completeness(str(study), "ds_edge", min_uniq_reads=1, max_missing_pct=5.0)
+
+
+def test_completeness_gate_low_read_taxids_ignored(tmp_path):
+    from deployment.model_evaluation.data_loader import passes_assembly_completeness
+
+    study = tmp_path / "study"
+    ds = study / "ds"
+    (ds / "classification").mkdir(parents=True)
+    (ds / "output").mkdir()
+    # Detection threshold only counts taxids with uniq_reads >= min_uniq_reads.
+    # Both counted taxids (1,2) are matched; taxids 3,4 (reads 0/1) are ignored.
+    pd.DataFrame({"taxid": [1, 2, 3, 4], "uniq_reads": [5, 3, 0, 1]}).to_csv(
+        ds / "classification" / "ds_merged_classification.tsv", sep="\t", index=False
+    )
+    pd.DataFrame({"taxid": [1, 2], "assembly_accession": ["NC_1", "NC_2"]}).to_csv(
+        ds / "output" / "matched_assemblies.tsv", sep="\t", index=False
+    )
+    assert passes_assembly_completeness(str(study), "ds", min_uniq_reads=3, max_missing_pct=5.0)
+    # With min_uniq_reads=1 taxid 4 is now required but unmatched -> 33% > 5%.
+    assert not passes_assembly_completeness(str(study), "ds", min_uniq_reads=1, max_missing_pct=5.0)

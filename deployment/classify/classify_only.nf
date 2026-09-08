@@ -14,6 +14,9 @@ params.centrifuge = params.centrifuge ?: true
 params.kraken2 = params.kraken2 ?: true
 params.diamond = params.diamond ?: false
 params.krakenunique = params.krakenunique ?: false
+params.min_uniq_reads = params.min_uniq_reads ?: 1
+params.fail_on_missing_assemblies = params.fail_on_missing_assemblies ?: true
+params.max_missing_references_pct = params.max_missing_references_pct ?: 5
 
 workflow {
 
@@ -469,12 +472,16 @@ process ExtractReferenceSequences {
     path "reference_sequences/matched_assemblies.tsv", emit: matched_assemblies
 
     script:
+    def fail_flag = (params.fail_on_missing_assemblies == false) ? "--no_fail_on_missing" : ""
     """
     ${params.python_bin} ${params.references_extract_script} retrieve \
     --input_table ${classifier_output} \
     --assembly_store "${params.assembly_store}" \
     --mapping_references_dir "reference_sequences" \
     --include_term "complete" \
-    --exclude_term "plasmid"
+    --exclude_term "plasmid" \
+    --min_uniq_reads ${params.min_uniq_reads} \
+    --max_missing_pct ${params.max_missing_references_pct} \
+    ${fail_flag}
     """
 }

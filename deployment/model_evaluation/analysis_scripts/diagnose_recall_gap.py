@@ -37,6 +37,8 @@ from collections.abc import Iterable
 
 import pandas as pd
 
+from deployment.model_evaluation.data_loader import passes_assembly_completeness
+
 logger = logging.getLogger(__name__)
 
 BUCKETS = [
@@ -222,8 +224,23 @@ def diagnose_dataset(study_output: str, dataset: str) -> pd.DataFrame:
     return per_taxid
 
 
-def diagnose_study(study_output: str, limit: int | None = None) -> pd.DataFrame:
+def diagnose_study(
+    study_output: str,
+    limit: int | None = None,
+    require_complete_assemblies: bool = True,
+    min_uniq_reads: int = 1,
+    max_missing_pct: float = 5.0,
+) -> pd.DataFrame:
     datasets = sorted(d for d in os.listdir(study_output) if os.path.isdir(os.path.join(study_output, d)))
+    if require_complete_assemblies:
+        datasets = [
+            d
+            for d in datasets
+            if passes_assembly_completeness(study_output, d, min_uniq_reads=min_uniq_reads, max_missing_pct=max_missing_pct)
+        ]
+        logger.info(
+            f"Assembly-completeness gate ON: restricting recall-gap diagnosis to {len(datasets)} complete datasets"
+        )
     if limit:
         datasets = datasets[:limit]
     frames = []
@@ -276,12 +293,42 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output-dir", required=True, help="Where to write the diagnostic TSVs/plot")
     parser.add_argument("--limit", type=int, default=None, help="Only process the first N datasets")
     parser.add_argument("--no-plot", action="store_true", help="Skip PNG generation")
+    parser.add_argument(
+        "--require-complete-assemblies",
+        action="store_true",
+        default=True,
+        help="Restrict diagnosis to datasets passing the assembly-completeness gate (at most "
+        "--max-missing-refs-pct% of detected references with uniq_reads>=--min-uniq-reads are "
+        "unmatched). Default: on.",
+    )
+    parser.add_argument(
+        "--allow-incomplete",
+        action="store_true",
+        help="Include datasets failing the assembly-completeness gate (equivalent to "
+        "--no-require-complete-assemblies).",
+    )
+    parser.add_argument(
+        "--min-uniq-reads", type=int, default=1, help="Minimum uniq_reads for a detected taxid. Default: 1."
+    )
+    parser.add_argument(
+        "--max-missing-refs-pct",
+        type=float,
+        default=5.0,
+        help="Max tolerated percent of qualified taxids lacking a matched assembly before a dataset "
+        "fails the completeness gate (default: 5.0).",
+    )
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     os.makedirs(args.output_dir, exist_ok=True)
 
-    per_taxid = diagnose_study(args.study_output, limit=args.limit)
+    per_taxid = diagnose_study(
+        args.study_output,
+        limit=args.limit,
+        require_complete_assemblies=args.require_complete_assemblies and not args.allow_incomplete,
+        min_uniq_reads=args.min_uniq_reads,
+        max_missing_pct=args.max_missing_refs_pct,
+    )
     if per_taxid.empty:
         logger.error("No datasets with input files found")
         return 1

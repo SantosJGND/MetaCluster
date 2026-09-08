@@ -35,6 +35,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import seaborn as sns
 
+from deployment.model_evaluation.data_loader import passes_assembly_completeness
 from deployment.model_evaluation.metrics import compute_recall
 from deployment.model_evaluation.result_models import write_pipeline_metadata
 from metagenomics_utils.ncbi_tools import NCBITaxonomistWrapper
@@ -74,6 +75,36 @@ def parse_args():
         default="reference",
         help="Order handling for replay surfaces: 'reference' (most frequent order only) or "
         "'average' (mean across taxonomic orders). Default: reference.",
+    )
+    parser.add_argument(
+        "--require-complete-assemblies",
+        action="store_true",
+        default=True,
+        help="Only use datasets passing the assembly-completeness gate for recall/"
+        "denominator-facing analyses (recall_by_classifier, recall_data, aggregate statistics over "
+        "recall metrics), i.e. at most --max-missing-refs-pct% of detected references "
+        "(uniq_reads>=--min-uniq-reads) lack a matched assembly. Precision/composition analyses are "
+        "unaffected. Default: on.",
+    )
+    parser.add_argument(
+        "--allow-incomplete",
+        action="store_true",
+        help="Include datasets that fail the assembly-completeness gate in recall/denominator-facing "
+        "analyses (equivalent to --no-require-complete-assemblies).",
+    )
+    parser.add_argument(
+        "--min-uniq-reads",
+        type=int,
+        default=1,
+        help="Minimum uniq_reads for a detected taxid to require a matched assembly. Default: 1.",
+    )
+    parser.add_argument(
+        "--max-missing-refs-pct",
+        type=float,
+        default=5.0,
+        help="Max tolerated percent of qualified taxids (uniq_reads>=--min-uniq-reads) lacking a "
+        "matched assembly before a dataset fails the completeness gate (default: 5.0). Mirrors "
+        "--max_missing_pct in reference_management/main.py retrieve.",
     )
     return parser.parse_args()
 
@@ -325,8 +356,19 @@ def process_dataset(
     cross_hit_threshold: float,
     min_taxonomic_score: float,
     explanatory: bool = False,
+    min_uniq_reads: int = 1,
+    max_missing_pct: float = 5.0,
 ) -> tuple[dict, list[dict], list[dict], list[dict], list[dict]]:
     logger.info(f"Processing: {dataset}")
+
+    assembly_complete = passes_assembly_completeness(
+        study_output_filepath, dataset, min_uniq_reads=min_uniq_reads, max_missing_pct=max_missing_pct
+    )
+    if not assembly_complete:
+        logger.warning(
+            f"{dataset}: FAILS assembly-completeness gate — excluded from recall/denominator-facing "
+            f"analyses (kept for precision/composition)"
+        )
 
     om_path = os.path.join(study_output_filepath, dataset, "clustering")
     input_path = os.path.join(study_output_filepath, dataset, "input", f"{dataset}.tsv")
@@ -385,6 +427,7 @@ def process_dataset(
         "recall_assembly": recall_assembly,
         "recall_classification": recall_classification,
         "last_best_match_relindex": metric_relindex,
+        "assembly_complete": bool(assembly_complete),
     }
 
     tp_hit_records = []
@@ -395,7 +438,9 @@ def process_dataset(
 
     classifier_hit_records = collect_precision_hits(m_stats, classifier_map, dataset)
 
-    recall_records = collect_recall_data(m_stats, input_df, dataset, ncbi_wrapper, classifier_detected)
+    recall_records = collect_recall_data(
+        m_stats, input_df, dataset, ncbi_wrapper, classifier_detected, assembly_complete=assembly_complete
+    )
 
     return per_dataset, per_classifier_records, tp_hit_records, classifier_hit_records, recall_records
 
@@ -406,6 +451,7 @@ def collect_recall_data(
     dataset_name: str,
     ncbi_wrapper: NCBITaxonomistWrapper,
     classifier_detected_taxids: set[int] | None = None,
+    assembly_complete: bool = True,
 ) -> list[dict]:
     tp_taxids: set[int] = set()
     if not m_stats.empty and "best_match_is_best" in m_stats.columns:
@@ -433,6 +479,7 @@ def collect_recall_data(
                 "recalled": int(recalled_assembly or recalled_classification),
                 "recalled_assembly": int(recalled_assembly),
                 "recalled_classification": int(recalled_classification),
+                "assembly_complete": int(assembly_complete),
             }
         )
     return records
@@ -1189,12 +1236,20 @@ def main():
     failed_messages = []
     explanatory = args.explanatory
     total_datasets = len(datasets)
+    require_complete = args.require_complete_assemblies and not args.allow_incomplete
+    if require_complete:
+        logger.info(
+            f"Assembly-completeness gate ON: only datasets passing the gate "
+            f"(min_uniq_reads={args.min_uniq_reads}, max_missing_refs_pct={args.max_missing_refs_pct}) "
+            f"feed recall/denominator analyses; precision/composition keep all datasets"
+        )
 
     def _write_partial_metadata():
         """Write whatever metadata we have so far — called on interrupt/signal."""
         partial_extracted = len(per_dataset_records)
         partial_skipped = len(skipped_names)
         partial_failed = len(failed_names)
+        partial_complete = sum(1 for r in per_dataset_records if r.get("assembly_complete"))
         rows = [
             ("total_attempted", total_attempted),
             ("extracted", partial_extracted),
@@ -1202,6 +1257,9 @@ def main():
             ("failed", partial_failed),
             ("skipped", partial_skipped),
         ]
+        if require_complete:
+            rows.append(("recall_analysis_datasets", partial_complete))
+            rows.append(("assembly_incomplete_excluded", partial_extracted - partial_complete))
         if skipped_names:
             rows.append(("skipped_datasets", ";".join(skipped_names)))
         if failed_messages:
@@ -1241,13 +1299,16 @@ def main():
                 args.cross_hit_threshold,
                 args.min_taxonomic_score,
                 explanatory=explanatory,
+                min_uniq_reads=args.min_uniq_reads,
+                max_missing_pct=args.max_missing_refs_pct,
             )
             if result[0] is not None:
                 per_dataset_records.append(result[0])
-                classifier_records.extend(result[1])
+                if not (require_complete and not result[0]["assembly_complete"]):
+                    classifier_records.extend(result[1])
+                    recall_records.extend(result[4])
                 tp_data_records.extend(result[2])
                 classifier_hit_records.extend(result[3])
-                recall_records.extend(result[4])
             else:
                 skipped_names.append(ds)
         except Exception as e:
@@ -1271,8 +1332,14 @@ def main():
     extracted = len(per_dataset_records)
     skipped = len(skipped_names)
     failed = len(failed_names)
+    complete_count = sum(1 for r in per_dataset_records if r.get("assembly_complete"))
 
     logger.info(f"Total attempted: {total_attempted}, Extracted: {extracted}, Skipped: {skipped}, Failed: {failed}, Study gaps: {len(study_gaps)}")
+    if require_complete:
+        logger.info(
+            f"Assembly-completeness gate: {complete_count}/{extracted} extracted datasets pass — "
+            f"recall/denominator analyses use only these; precision/composition keep all {extracted}"
+        )
 
     metadata_rows = [
         ("total_attempted", total_attempted),
@@ -1281,6 +1348,9 @@ def main():
         ("failed", failed),
         ("skipped", skipped),
     ]
+    if require_complete:
+        metadata_rows.append(("recall_analysis_datasets", complete_count))
+        metadata_rows.append(("assembly_incomplete_excluded", extracted - complete_count))
     if incomplete_names:
         metadata_rows.append(("incomplete", len(incomplete_names)))
         metadata_rows.append(("incomplete_datasets", ";".join(incomplete_names)))
@@ -1303,10 +1373,21 @@ def main():
 
     per_dataset_path = os.path.join(output_dir, "per_dataset_metrics.tsv")
     per_dataset_df.to_csv(per_dataset_path, sep="\t", index=False)
-    logger.info(f"Saved: {per_dataset_path}")
+    logger.info(f"Saved: {per_dataset_path} (assembly_complete column marks gate status)")
 
-    numeric_cols = per_dataset_df.select_dtypes(include=[np.number]).columns.tolist()
-    stats_df = per_dataset_df[numeric_cols].describe().T.reset_index()
+    complete_mask = per_dataset_df["assembly_complete"].astype(bool)
+    if require_complete:
+        complete_datasets = set(per_dataset_df.loc[complete_mask, "data_set"])
+        if not classifier_df.empty and "data_set" in classifier_df.columns:
+            classifier_df = classifier_df[classifier_df["data_set"].isin(complete_datasets)].copy()
+            logger.info(
+                f"Recall-by-classifier uses {classifier_df['data_set'].nunique()} complete datasets "
+                f"(incomplete excluded)"
+            )
+
+    stats_source = per_dataset_df[complete_mask] if require_complete else per_dataset_df
+    numeric_cols = stats_source.select_dtypes(include=[np.number]).columns.tolist()
+    stats_df = stats_source[numeric_cols].describe().T.reset_index()
     stats_df.columns = ["metric", "count", "mean", "std", "min", "q25", "q50", "q75", "max"]
     stats_path = os.path.join(output_dir, "aggregate_statistics.tsv")
     stats_df.to_csv(stats_path, sep="\t", index=False)
@@ -1415,6 +1496,14 @@ def main():
             recall_dir = os.path.join(exp_dir, "recall_model")
             os.makedirs(recall_dir, exist_ok=True)
             recall_df = pd.DataFrame(recall_records)
+            if require_complete and "assembly_complete" in recall_df.columns:
+                before = len(recall_df)
+                recall_df = recall_df[recall_df["assembly_complete"].astype(bool)].copy()
+                if len(recall_df) < before:
+                    logger.info(
+                        f"Recall data (GEE recall model training) filtered: {len(recall_df)}/{before} "
+                        f"taxid-rows from complete datasets"
+                    )
             recall_path = os.path.join(recall_dir, "recall_data.tsv")
             recall_df.to_csv(recall_path, sep="\t", index=False)
             logger.info(f"Saved: {recall_path} ({len(recall_df)} rows)")

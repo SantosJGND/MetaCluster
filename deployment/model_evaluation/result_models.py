@@ -132,6 +132,7 @@ class DatasetResult:
     input_df: pd.DataFrame
     sample: str = ""
     input_taxid_count: int = 0
+    assembly_complete: bool = True
     output_raw: int = 0
     output_taxid_count: int = 0
     output_cov_filtered: int = 0

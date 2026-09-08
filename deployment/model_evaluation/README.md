@@ -147,6 +147,47 @@ visualizer = ResultVisualizer("/path/to/output/plots")
 visualizer.plot_all(results)
 ```
 
+## Assembly-Completeness Gate
+
+Recall/denominator-facing analyses only use datasets where **at most
+`max_missing_pct` (default 5%) of detected references
+(`uniq_reads >= min_uniq_reads`) lack a matched assembly**.
+A dataset passes when at most `--max-missing-refs-pct` percent of the taxids in
+`classification/<ds>_merged_classification.tsv` with `uniq_reads >= --min-uniq-reads`
+(default 1) are missing from `output/matched_assemblies.tsv` — i.e. the fraction in
+`unmatched_classified_taxids.tsv` is `<= max_missing_pct`.
+This mirrors the `retrieve` gate (`--max_missing_pct` in `reference_management/main.py`):
+a dataset where >5% of references could not be mapped to assemblies is **skipped**
+(excluded), so 0-recall outputs caused by a taxonomy→genome lookup failure are never
+treated as genuine, while a small tolerated fraction does not discard the dataset.
+
+- **On by default** (`--require-complete-assemblies`); add `--allow-incomplete`
+  to include failing datasets. Applies to: `analysis_data_extractor.py`
+  (`recall_per_classifier.tsv`, `recall_data.tsv` for the GEE recall model,
+  `aggregate_statistics.tsv`), `evaluate.py` (recall model training matrices +
+  recall-facing plots), `diagnose_recall_gap.py`, and `compare_sort_strategies.py`
+  (recall-model training). `--min-uniq-reads` sets the detection threshold;
+  `--max-missing-refs-pct` (default 5) sets the tolerated unmatched fraction.
+- **At the classify stage** (`deployment/classify/classify.nf` +
+  `deploy_classify_map.sh`): `params.max_missing_references_pct` (default 5) is
+  forwarded as `retrieve --max_missing_pct`. Above-threshold datasets exit with
+  code 3, are recorded in `incomplete_datasets.tsv` with reason
+  `too_many_missing_references`, and are excluded from analysis without failing
+  the deployment (`exit 0`); datasets at or below the threshold proceed with the
+  matched subset.
+- **Not filtered** (precision/composition): TP/cross-hit/spurious counts,
+  precision and purity, classifier hit counts, cross-hit/spurious composition.
+- Every `per_dataset_metrics.tsv` / `test_datasets_summary_results.tsv` row carries
+  an `assembly_complete` flag; `pipeline_metadata.tsv` records
+  `recall_analysis_datasets` and `assembly_incomplete_excluded`.
+
+As of the virus study (1690 datasets, `--min-uniq-reads 1`, strict 0%): 128 (7.8%)
+datasets pass study-wide; 35 of the 431 final-analysis test datasets present
+locally pass. All 18 viral orders remain represented. A 5% tolerance raises these
+counts. Caveat: the pre-fix runs mostly fail the gate because of the environmental
+store/NCBI mismatch (see CHANGELOG), not bad data — re-running classify with the
+corrected store flips most datasets to pass.
+
 ## Output
 
 ### Files Generated

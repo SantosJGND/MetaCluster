@@ -16,6 +16,80 @@ from metagenomics_utils.ncbi_tools import NCBITaxonomistWrapper
 logger = logging.getLogger(__name__)
 
 
+def passes_assembly_completeness(
+    study_output_filepath: str,
+    data_set_name: str,
+    min_uniq_reads: int = 1,
+    max_missing_pct: float = 5.0,
+) -> bool:
+    """
+    True if at most ``max_missing_pct`` percent of classified taxids with
+    ``uniq_reads >= min_uniq_reads`` in the dataset's merged classification
+    lack a matched assembly.
+
+    Mirrors the retrieval gate in ``reference_management`` (``--max_missing_pct``):
+    a dataset whose detected references could not all be matched to assemblies
+    is unreliable for recall/denominator-facing analyses, but a small
+    (<= max_missing_pct) unmatched fraction is tolerated and the dataset still
+    passes. Missing required files counts as incomplete (False).
+    Composition/precision analyses may ignore this flag.
+
+    Args:
+        study_output_filepath: Root of the study output tree (one dir per dataset).
+        data_set_name: Dataset folder name.
+        min_uniq_reads: Minimum uniq_reads for a taxid to require a matched assembly.
+        max_missing_pct: Maximum tolerated percent of qualified taxids lacking a
+            matched assembly (default 5.0). Strict: exactly max_missing_pct passes.
+
+    Returns:
+        True if the dataset passes the assembly-completeness gate.
+    """
+    dataset_dir = os.path.join(study_output_filepath, data_set_name)
+    classification_dir = os.path.join(dataset_dir, "classification")
+    matched_path = os.path.join(dataset_dir, "output", "matched_assemblies.tsv")
+    if not os.path.isdir(classification_dir) or not os.path.isfile(matched_path):
+        if os.path.isdir(dataset_dir):
+            logger.debug(f"{data_set_name}: missing classification or matched_assemblies.tsv; incomplete")
+        return False
+
+    merged = [f for f in os.listdir(classification_dir) if f.endswith("_merged_classification.tsv")]
+    if not merged:
+        logger.debug(f"{data_set_name}: no *_merged_classification.tsv found; incomplete")
+        return False
+
+    try:
+        classification = pd.read_csv(os.path.join(classification_dir, merged[0]), sep="\t")
+        matched = pd.read_csv(matched_path, sep="\t")
+    except Exception as e:  # noqa: BLE001 - csv parse errors should not kill the batch
+        logger.warning(f"{data_set_name}: could not read classification/matched assemblies: {e}; incomplete")
+        return False
+
+    if "taxid" not in classification.columns or "taxid" not in matched.columns:
+        logger.warning(f"{data_set_name}: classification or matched assemblies lack a taxid column; incomplete")
+        return False
+
+    if "uniq_reads" in classification.columns:
+        detected = classification.loc[
+            classification["uniq_reads"].astype(float).fillna(0.0) >= min_uniq_reads, "taxid"
+        ]
+    else:
+        detected = classification["taxid"]
+
+    matched_taxids = set(matched["taxid"].astype(str).str.strip())
+    missing = set(detected.astype(str).str.strip()) - matched_taxids
+    n_qualified = len(detected)
+    n_missing = len(missing)
+    if not n_qualified:
+        return True
+    missing_pct = 100.0 * n_missing / n_qualified
+    if missing:
+        logger.debug(
+            f"{data_set_name}: assembly incomplete — {n_missing}/{n_qualified} "
+            f"detected taxids unmatched ({missing_pct:.1f}% > max {max_missing_pct}%)"
+        )
+    return missing_pct <= max_missing_pct
+
+
 def retrieve_simulation_input(study_output_filepath: str) -> pd.DataFrame:
     """
     Retrieve simulation input data from study output directories.

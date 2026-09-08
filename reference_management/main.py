@@ -46,6 +46,16 @@ def get_args():
         action="store_true",
         help="Do not exit non-zero when classified taxids (uniq_reads >= --min_uniq_reads) lack a matched assembly.",
     )
+    retrieve_parser.add_argument(
+        "--max_missing_pct",
+        type=float,
+        default=5.0,
+        help=(
+            "Skip the dataset (exit code 3) when the fraction of classified references "
+            "(uniq_reads >= --min_uniq_reads) lacking a matched assembly exceeds this "
+            "percentage (default: 5.0). Datasets at or below the threshold proceed normally."
+        ),
+    )
 
     # Subcommand: check
     check_parser = subparsers.add_parser("check", help="Check if mapping ids can be retrieved.")
@@ -63,6 +73,18 @@ def get_args():
     return parser.parse_args()
 
 
+def missing_pct_exceeds(n_missing: int, n_qualified: int, max_pct: float = 5.0) -> bool:
+    """
+    True when more than ``max_pct`` percent of qualified references lack a match.
+
+    A dataset with no qualified references has 0% missing and never exceeds the
+    threshold. The threshold is strict: exactly ``max_pct`` proceeds.
+    """
+    if not n_qualified:
+        return False
+    return (100.0 * n_missing / n_qualified) > max_pct
+
+
 def retrieve_assemblies(args):
     """
     Retrieve assemblies based on the input table and store them in the specified directory.
@@ -71,6 +93,7 @@ def retrieve_assemblies(args):
     assembly_store = args.assembly_store
     mapping_references_dir = args.mapping_references_dir
     min_uniq_reads = args.min_uniq_reads
+    max_missing_pct = args.max_missing_pct
     fail_on_missing = not args.no_fail_on_missing
 
     assembly_store = AssemblyStore(assembly_store)
@@ -90,30 +113,50 @@ def retrieve_assemblies(args):
             f"(these cannot be recalled via read mapping). Saved to {unmatched_path}"
         )
 
-    # Fail-hard validation: every classified taxid with uniq_reads >= min_uniq_reads
-    # must have a matched assembly (returned by the local store or the NCBI fallback).
+    # Assembly-completeness gate: a classified taxid with uniq_reads >= min_uniq_reads
+    # requires a matched assembly (from the local store or the NCBI fallback). When the
+    # share of qualified taxids lacking a match exceeds max_missing_pct%, the dataset is
+    # SKIPPED (exit code 3, DATASET_SKIPPED.txt marker); at or below the threshold the
+    # extracted subset proceeds normally.
     qualified = df
     if "uniq_reads" in df.columns:
         qualified = qualified[qualified["uniq_reads"] >= min_uniq_reads]
 
     missing_classified = qualified[qualified["assembly_accession"].isna() | qualified["assembly_file"].isna()]
+    n_qualified = len(qualified)
+    n_missing = len(missing_classified)
+    missing_pct = (100.0 * n_missing / n_qualified) if n_qualified else 0.0
+    skip_dataset = fail_on_missing and missing_pct_exceeds(n_missing, n_qualified, max_missing_pct)
     if not missing_classified.empty:
         missing_path = os.path.join(mapping_references_dir, "unmatched_classified_taxids.tsv")
         missing_classified.to_csv(missing_path, index=False, sep="\t")
+        action = "SKIP" if skip_dataset else "WARNING"
         print(
-            f"FAIL: {len(missing_classified)}/{len(qualified)} classified taxids "
-            f"(uniq_reads >= {min_uniq_reads}) have no matched assembly. "
-            f"Saved to {missing_path}"
+            f"{action}: {n_missing}/{n_qualified} classified taxids "
+            f"(uniq_reads >= {min_uniq_reads}) have no matched assembly ({missing_pct:.1f}% "
+            f"> max {max_missing_pct}%). Saved to {missing_path}"
         )
+        if skip_dataset:
+            skip_path = os.path.join(mapping_references_dir, "DATASET_SKIPPED.txt")
+            with open(skip_path, "w") as fh:
+                fh.write(
+                    f"Skipped: {n_missing}/{n_qualified} classified references "
+                    f"({missing_pct:.1f}%) lack a matched assembly, exceeding "
+                    f"max_missing_pct={max_missing_pct}%. Dataset excluded from analysis.\n"
+                )
+            print(
+                f"Assembly validation failed: {missing_pct:.1f}% missing > "
+                f"max_missing_pct={max_missing_pct}% -> dataset skipped (excluded from analysis)."
+            )
     else:
-        print(f"Assembly validation: all {len(qualified)} classified taxids matched")
+        print(f"Assembly validation: all {n_qualified} classified taxids matched")
 
     df.dropna(subset=["assembly_accession", "assembly_file"]).to_csv(
         os.path.join(mapping_references_dir, "matched_assemblies.tsv"), index=False, sep="\t"
     )
 
-    if fail_on_missing and not missing_classified.empty:
-        sys.exit(1)
+    if skip_dataset:
+        sys.exit(3)
 
 
 def check_assemblies_exist(args):

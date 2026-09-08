@@ -16,6 +16,7 @@ params.diamond = params.diamond ?: false
 params.krakenunique = params.krakenunique ?: false
 params.min_uniq_reads = params.min_uniq_reads ?: 1
 params.fail_on_missing_assemblies = params.fail_on_missing_assemblies ?: true
+params.max_missing_references_pct = params.max_missing_references_pct ?: 5
 
 workflow {
 
@@ -480,6 +481,7 @@ process ExtractReferenceSequences {
     --include_term "complete" \
     --exclude_term "plasmid" \
     --min_uniq_reads ${params.min_uniq_reads} \
+    --max_missing_pct ${params.max_missing_references_pct} \
     ${fail_flag}
     """
 }

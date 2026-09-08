@@ -4,6 +4,7 @@ Visualization module for evaluator results.
 Generates plots and charts from evaluation results.
 """
 
+import logging
 import os
 
 import matplotlib.pyplot as plt
@@ -13,20 +14,26 @@ from plotly import graph_objects as go
 
 from .result_models import BatchEvaluationResult
 
+logger = logging.getLogger(__name__)
+
 
 class ResultVisualizer:
     """
     Generates all plots from BatchEvaluationResult.
     """
 
-    def __init__(self, output_dir: str):
+    def __init__(self, output_dir: str, require_complete_assemblies: bool = True):
         """
         Initialize visualizer.
 
         Args:
             output_dir: Directory to save plots
+            require_complete_assemblies: When True (default), recall-facing plots are limited to
+                datasets whose detected references were all matched to assemblies
+                (``assembly_complete`` True). Precision/composition plots keep all datasets.
         """
         self.output_dir = output_dir
+        self.require_complete_assemblies = require_complete_assemblies
         os.makedirs(output_dir, exist_ok=True)
 
     def plot_all(self, results: BatchEvaluationResult) -> None:
@@ -38,17 +45,25 @@ class ResultVisualizer:
         """
         self.plot_precision_distribution(results.test_results)
         self.plot_precision_comparison(results.summary_results)
-        self.plot_recall_comparison(results.summary_results)
+
+        recall_summary = results.summary_results
+        if self.require_complete_assemblies and "assembly_complete" in recall_summary.columns:
+            recall_summary = recall_summary[recall_summary["assembly_complete"].astype(bool)]
+            if recall_summary.empty:
+                logger.warning("No assembly-complete datasets; skipping recall-facing plots")
+                recall_summary = results.summary_results
+
+        self.plot_recall_comparison(recall_summary)
         self.plot_cross_hit_heatmap(results.cross_hit_composition)
         self.plot_spurious_heatmap(results.spurious_composition)
-        self.plot_recall_improvement(results.summary_results)
-        self.plot_probability_metrics(results.summary_results)
-        self.plot_filtering_benefit(results.summary_results)
-        self.plot_recall_error_boxplot(results.summary_results)
-        self.plot_recall_rmse_distribution(results.summary_results)
-        self.plot_last_best_match_vs_rmse(results.summary_results)
-        self.plot_cutoff_error_histogram(results.summary_results)
-        self.plot_cutoff_confusion_matrix(results.summary_results)
+        self.plot_recall_improvement(recall_summary)
+        self.plot_probability_metrics(recall_summary)
+        self.plot_filtering_benefit(recall_summary)
+        self.plot_recall_error_boxplot(recall_summary)
+        self.plot_recall_rmse_distribution(recall_summary)
+        self.plot_last_best_match_vs_rmse(recall_summary)
+        self.plot_cutoff_error_histogram(recall_summary)
+        self.plot_cutoff_confusion_matrix(recall_summary)
         if self._has_cross_hit_data(results.summary_results):
             self.plot_cross_hit_metrics(results.summary_results)
             self.plot_cross_hit_distribution(results.summary_results)

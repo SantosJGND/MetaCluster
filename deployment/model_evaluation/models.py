@@ -54,6 +54,7 @@ class ModelTrainer:
         input_tax_df: pd.DataFrame,
         taxids_to_use: pd.DataFrame,
         use_cache: bool = True,
+        recall_folders: list[str] | None = None,
     ):
         """
         Initialize model trainer.
@@ -64,12 +65,16 @@ class ModelTrainer:
             input_tax_df: Input tax DataFrame
             taxids_to_use: Taxids to use for evaluation
             use_cache: Whether to use cached training data (default: True)
+            recall_folders: Optional subset of training folders used to build the recall
+                model training matrices. When set (e.g. assembly-complete datasets only),
+                composition/cross-hit training still uses the full training set.
         """
         self.config = config
         self.ncbi = ncbi_wrapper
         self.input_tax_df = input_tax_df
         self.taxids_to_use = taxids_to_use
         self.use_cache = use_cache
+        self.recall_folders = recall_folders
 
         self.recall_modeller: RecallModeller | None = None
         self.composition_modeller: BaseCompositionModeller | None = None
@@ -140,7 +145,8 @@ class ModelTrainer:
                     prediction_results.append(prediction_matrix)
                 if m_stats_stats_matrix is not None and not m_stats_stats_matrix.empty:
                     stats_matrices.append(m_stats_stats_matrix)
-                    recall_matrices.append(m_stats_stats_matrix)
+                    if self.recall_folders is None or data_set_name in self.recall_folders:
+                        recall_matrices.append(m_stats_stats_matrix)
 
             except Exception as e:
                 logger.error(f"Error processing {data_set_name}: {e}")
@@ -317,7 +323,14 @@ class ModelTrainer:
             logger.info("Force refresh enabled, clearing cache")
             self.clear_cache()
 
-        cached_data = self.load_cached_data()
+        cached_data = None
+        if self.recall_folders is None:
+            cached_data = self.load_cached_data()
+        else:
+            logger.info(
+                "Recall model uses a restricted set of folders (assembly-complete); bypassing "
+                "whole-set recall matrix cache"
+            )
 
         if cached_data is not None:
             training_df, prediction_df, taxids_df, recall_matrices = cached_data
@@ -326,7 +339,7 @@ class ModelTrainer:
         else:
             logger.info("Computing fresh training data")
             training_df, prediction_df = self.run_data_retrieval(training_folders)
-            if not training_df.empty:
+            if not training_df.empty and self.recall_folders is None:
                 self.save_cached_data(training_df, prediction_df)
             taxids_df = self.taxids_to_use
 

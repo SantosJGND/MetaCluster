@@ -147,6 +147,7 @@ def test_extractor_emits_cohort_metadata(tmp_path, monkeypatch):
                 "overall_recall": 0.75,
                 "recall_cov_filtered": 0.5,
                 "last_best_match_relindex": 0.4,
+                "assembly_complete": True,
             }
             return record, [], [], [], []
         if ds == "ds_skip":
@@ -173,6 +174,10 @@ def test_extractor_emits_cohort_metadata(tmp_path, monkeypatch):
         explanatory=False,
         replay_recall=None,
         replay_order_mode="reference",
+        require_complete_assemblies=True,
+        allow_incomplete=False,
+        min_uniq_reads=1,
+        max_missing_refs_pct=5.0,
     )
     monkeypatch.setattr(adx, "parse_args", lambda: namespace)
 

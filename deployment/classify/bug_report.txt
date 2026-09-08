@@ -1,0 +1,51 @@
+=== Deploy Study: CLASSIFY + MERGE + MAP STEP ===
+Tables dir : /home/insaflu/work/DDI/Projects/manuscript_cluster_analysis/viruses/viruses_ebinger
+Params file: params_simulate.json
+Output dir : /home/insaflu/work/DDI/Projects/manuscript_cluster_analysis/viruses/filter_new/output_study
+Incomplete : /home/insaflu/work/DDI/Projects/manuscript_cluster_analysis/viruses/filter_new/output_study/incomplete_datasets.tsv
+Process is currently running for dataset_0001_plan. Skipping.
+=== [classify+map] dataset_0002_plan ===
+Nextflow 26.04.6 is available - Please consider updating your version to it
+N E X T F L O W  ~  version 25.04.6
+Launching `/home/insaflu/work/DDI/Projects/MetaCluster/deployment/classify/classify.nf` [intergalactic_lamport] DSL2 - revision: a9cad397fa
+WARN: Access to undefined parameter `min_uniq_reads` -- Initialise it to a default value eg. `params.min_uniq_reads = some_value`
+WARN: Access to undefined parameter `fail_on_missing_assemblies` -- Initialise it to a default value eg. `params.fail_on_missing_assemblies = some_value`
+WARN: Unknown directive `params` for process `QCReadsPrinseqPaired`
+WARN: Unknown directive `params` for process `Kraken2ClassificationPaired`
+WARN: Unknown directive `params` for process `CentrifugeClassificationPaired`
+WARN: Unknown directive `params` for process `DiamondClassificationPaired`
+WARN: Unknown directive `params` for process `KrakenUniqueClassificationPaired`
+WARN: Unknown directive `params` for process `MapMinimap2Paired`
+WARN: Unknown directive `params` for process `FilterBamMsamtools`
+WARN: Unknown directive `params` for process `sortBam`
+WARN: Unknown directive `params` for process `SamtoolsCoverage`
+WARN: There's no process matching config selector: SimulateReadsMess
+WARN: There's no process matching config selector: MosDepth
+WARN: There's no process matching config selector: SortBam -- Did you mean: sortBam?
+[71/037a5c] Submitted process > QCReadsPrinseqPaired (1)
+ERROR ~ Error executing process > 'QCReadsPrinseqPaired (1)'
+
+Caused by:
+  Process `QCReadsPrinseqPaired (1)` terminated with an error exit status (1)
+
+
+Command executed:
+
+  prinseq++ --lc_entropy 0.5 --lc_dust 0.7 -fastq dataset_0002_plan_R1.fq.gz -fastq2 dataset_0002_plan_R2.fq.gz         -out_good dataset_0002_plan_good_R1.fastq -out_bad dataset_0002_plan_bad_R1.fastq         -out_good2 dataset_0002_plan_good_R2.fastq -out_bad2 dataset_0002_plan_bad_R2.fastq
+  bgzip dataset_0002_plan_good_R1.fastq && bgzip dataset_0002_plan_good_R2.fastq
+  bgzip dataset_0002_plan_bad_R1.fastq && bgzip dataset_0002_plan_bad_R2.fastq
+
+Command exit status:
+  1
+
+Command output:
+  (empty)
+
+Work dir:
+  /home/insaflu/work/DDI/Projects/manuscript_cluster_analysis/viruses/filter_new_2/work/71/037a5c2d2f897fe520ed972b6a1be8
+
+Tip: you can replicate the issue by changing to the process work dir and entering the command `bash .command.run`
+
+ -- Check '.nextflow.log' file for details
+WARN: Got an interrupted exception while taking agent result | java.lang.InterruptedException
+INCOMPLETE: classify/map failed for dataset_0002_plan (likely assembly validation or runtime error)

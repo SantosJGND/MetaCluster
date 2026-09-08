@@ -19,5 +19,6 @@
     "minimap2_conda_env": "path/to/mapping_env",
 
     "min_uniq_reads": 1,
-    "fail_on_missing_assemblies": true
+    "fail_on_missing_assemblies": true,
+    "max_missing_references_pct": 5
 }
