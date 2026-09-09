@@ -127,12 +127,20 @@ class ClassifierOutputProcessor(ABC):
             Self for method chaining
         """
         self.final_report = self.final_report.drop_duplicates(subset=["description"])
-        self.final_report["description"] = (
-            self.final_report["description"]
-            .apply(lambda x: x.strip() if isinstance(x, str) else str(x))
-            .str.replace(" ", "_")
-            .str.lower()
-        )
+
+        def _normalize_description(x):
+            # Preserve missing values
+            if pd.isna(x):
+                return None
+            # Ensure we operate on a string, strip surrounding whitespace
+            s = str(x).strip()
+            if not s:
+                return None
+            # Replace any internal whitespace runs with single underscore and lowercase
+            s = "_".join(s.split())
+            return s.lower()
+
+        self.final_report["description"] = self.final_report["description"].apply(_normalize_description)
 
         self.final_report["software_name"] = self.software_name
 
