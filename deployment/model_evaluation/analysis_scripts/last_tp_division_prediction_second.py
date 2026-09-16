@@ -1735,7 +1735,7 @@ for tau in TARGET_TAUS:
                     tpr, fpr = _tpr_fpr(y_pred)
                     fpr_list.append(fpr)
                     tpr_list.append(tpr)
-                auc_val = np.trapz(tpr_list, fpr_list)
+                auc_val = np.trapezoid(tpr_list, fpr_list)
                 ls = "-" if is_clf else "--"
                 ax.plot(
                     fpr_list,

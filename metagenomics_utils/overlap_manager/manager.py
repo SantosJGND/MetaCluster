@@ -853,6 +853,14 @@ class OverlapManager:
     def check_data_available(self):
         if os.path.exists(self.distance_matrix_filepath) is False:
             return False
+        
+        if os.path.exists(os.path.join(self.rundir, "output", "matched_assemblies.tsv")) is False:
+            return False
+        
+        if os.path.exists(
+os.path.join(self.rundir, "output", "merged_coverage_statistics.tsv")) is False:
+            return False
+    
         return True
 
     def node_selector(self, node: str, threshold=0.5):
