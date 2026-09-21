@@ -383,6 +383,9 @@ class BatchEvaluationResult:
             failed_datasets = self.metadata.get("failed_datasets") or ";".join(errors)
             rows.append(("failed_datasets", failed_datasets))
 
+        if "cross_hit_enabled" in self.metadata:
+            rows.append(("cross_hit_enabled", self.metadata["cross_hit_enabled"]))
+
         write_pipeline_metadata(rows, output_dir)
 
 

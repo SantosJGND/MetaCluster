@@ -4,7 +4,6 @@ import argparse
 import json
 
 import pandas as pd
-import pytest
 
 from deployment.model_evaluation.batch_evaluator import BatchEvaluator
 from deployment.model_evaluation.exceptions import EvaluatorError
@@ -61,6 +60,23 @@ def test_save_metadata_rows(tmp_path):
     assert m["skipped_count"] == 1
     assert m["skipped_datasets"] == "s1"
     assert m["failed_datasets"] == "boom"
+    assert "cross_hit_enabled" not in m
+
+
+def test_save_metadata_cross_hit_enabled_row(tmp_path):
+    res = BatchEvaluationResult()
+    res.metadata = {"successful": 1, "failed": 0, "cross_hit_enabled": False}
+    res.save_metadata(str(tmp_path))
+
+    m = _meta_map(pd.read_csv(tmp_path / "pipeline_metadata.tsv", sep="\t"))
+    assert m["cross_hit_enabled"] == "False"
+
+    res2 = BatchEvaluationResult()
+    res2.metadata = {"successful": 1, "failed": 0, "cross_hit_enabled": True}
+    res2.save_metadata(str(tmp_path))
+
+    m2 = _meta_map(pd.read_csv(tmp_path / "pipeline_metadata.tsv", sep="\t"))
+    assert m2["cross_hit_enabled"] == "True"
 
 
 def test_to_json_tsv_parity(tmp_path):
@@ -90,8 +106,14 @@ def test_to_json_tsv_parity(tmp_path):
     assert jmeta["failed_datasets"] == tmeta["failed_datasets"]
 
 
-def test_aggregate_results_metadata_no_success():
+def _bare_evaluator(enable_cross_hit: bool = False) -> BatchEvaluator:
     evaluator = object.__new__(BatchEvaluator)
+    evaluator.config = argparse.Namespace(enable_cross_hit=enable_cross_hit)
+    return evaluator
+
+
+def test_aggregate_results_metadata_no_success():
+    evaluator = _bare_evaluator()
     res = BatchEvaluator._aggregate_results(
         evaluator,
         results=[],
@@ -104,15 +126,16 @@ def test_aggregate_results_metadata_no_success():
     assert meta["skipped_count"] == 1
     assert meta["skipped"] == ["skipped_ds"]
     assert meta["failed_datasets"] == "boom"
+    assert meta["cross_hit_enabled"] is False
 
 
-def test_aggregate_results_metadata_success():
+def test_aggregate_results_cross_hit_disabled():
     result = DatasetResult(data_set="d1", input_df=pd.DataFrame())
     result.precision = PrecisionMetrics()
     result.recall = RecallMetrics()
     result.cross_hit = CrossHitMetrics()
 
-    evaluator = object.__new__(BatchEvaluator)
+    evaluator = _bare_evaluator(enable_cross_hit=False)
     res = BatchEvaluator._aggregate_results(evaluator, results=[result], errors=[], skipped=[])
     meta = res.metadata
     assert meta["total_datasets"] == 1
@@ -121,6 +144,38 @@ def test_aggregate_results_metadata_success():
     assert meta["skipped_count"] == 0
     assert meta["skipped"] == []
     assert meta["failed_datasets"] == ""
+    assert meta["cross_hit_enabled"] is False
+    assert not res.summary_results.columns.str.startswith("cross_hit_").any()
+    assert res.cross_hit_composition.empty
+
+
+def test_aggregate_results_cross_hit_enabled():
+    result = DatasetResult(data_set="d1", input_df=pd.DataFrame())
+    result.precision = PrecisionMetrics()
+    result.recall = RecallMetrics()
+    result.cross_hit = CrossHitMetrics(
+        predicted_cross_hits=3,
+        cross_hit_specificity=0.9,
+        cross_hit_precision=0.8,
+        cross_hit_recall=0.7,
+        cross_hit_f1=0.75,
+        total_true_cross_hits=5,
+        total_cross_hit_reads_mapped=10,
+        cross_hit_counts_per_class="A:2",
+        cross_hit_reads_per_class="A:10",
+    )
+
+    evaluator = _bare_evaluator(enable_cross_hit=True)
+    res = BatchEvaluator._aggregate_results(evaluator, results=[result], errors=[], skipped=[])
+    meta = res.metadata
+    assert meta["cross_hit_enabled"] is True
+    row = res.summary_results.iloc[0]
+    assert row["predicted_cross_hits"] == 3
+    assert row["cross_hit_precision"] == 0.8
+    assert row["cross_hit_recall"] == 0.7
+    assert row["cross_hit_f1"] == 0.75
+    assert row["cross_hit_specificity"] == 0.9
+    assert row["total_true_cross_hits"] == 5
 
 
 def test_extractor_emits_cohort_metadata(tmp_path, monkeypatch):

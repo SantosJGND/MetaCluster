@@ -125,14 +125,16 @@ class ModelTrainer:
                     tax_level=self.config.tax_level,
                 )
 
-                prediction_matrix = cross_hit_prediction_matrix(
-                    data_set_name,
-                    self.config.study_output_filepath,
-                    self.ncbi,
-                    overlap_manager,
-                    self.taxids_to_use,
-                    tax_level=self.config.tax_level,
-                )
+                prediction_matrix = None
+                if self.config.enable_cross_hit:
+                    prediction_matrix = cross_hit_prediction_matrix(
+                        data_set_name,
+                        self.config.study_output_filepath,
+                        self.ncbi,
+                        overlap_manager,
+                        self.taxids_to_use,
+                        tax_level=self.config.tax_level,
+                    )
 
                 m_stats_stats_matrix = self._get_m_stats_matrix(data_set_name, overlap_manager, filter_no_leaf=False)
 
@@ -278,6 +280,13 @@ class ModelTrainer:
             taxids_df = pd.read_parquet(taxids_path)
             recall_matrices = joblib.load(matrices_path)
 
+            if not self.config.enable_cross_hit:
+                prediction_df = pd.DataFrame()
+            elif prediction_df.empty:
+                logger.info("Cached prediction results are empty (cache written with cross-hit disabled); "
+                            "will compute fresh training data")
+                return None
+
             logger.info(
                 f"Loaded cached training data: {len(training_df)} training, {len(prediction_df)} prediction, {len(taxids_df)} taxids records, {len(recall_matrices)} matrices"
             )
@@ -397,10 +406,16 @@ class ModelTrainer:
 
         self.composition_modeller = self._init_composition_modeller(training_df)
 
-        self.crosshit_modeller = CrossHitModeller(
-            prediction_trainning_results_df=prediction_df,
-            description=self.config.description or None,
-        )
+        self.crosshit_modeller = None
+        if self.config.enable_cross_hit:
+            self.crosshit_modeller = CrossHitModeller(
+                prediction_trainning_results_df=prediction_df,
+                description=self.config.description or None,
+            )
+        else:
+            logger.info(
+                "Cross-hit modelling disabled (--no-enable-cross-hit); skipping crosshit model training"
+            )
 
         logger.info("Training recall model...")
         model_recall = self.recall_modeller.fit(
@@ -433,8 +448,9 @@ class ModelTrainer:
         )
         self.composition_modeller.fit(X_train, y_train, X_test, y_test)
 
-        logger.info("Training crosshit model...")
-        self.crosshit_modeller.train_model()
+        if self.config.enable_cross_hit and self.crosshit_modeller is not None:
+            logger.info("Training crosshit model...")
+            self.crosshit_modeller.train_model()
 
         self.models = TrainedModels(
             recall_modeller=self.recall_modeller,
@@ -510,9 +526,10 @@ class ModelTrainer:
         Returns:
             Tuple of (recall_modeller, composition_modeller, crosshit_modeller)
         """
-        if self.recall_modeller is None or self.composition_modeller is None or self.crosshit_modeller is None:
+        if self.recall_modeller is None or self.composition_modeller is None:
             raise ModelError("all", "get", "Models not trained yet")
 
+        # crosshit_modeller is None when cross-hit modelling is disabled
         return self.recall_modeller, self.composition_modeller, self.crosshit_modeller
 
 

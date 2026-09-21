@@ -40,6 +40,11 @@ class EvaluatorConfig(BaseModel):
     )
     cross_hit_threshold: float = Field(default=0.95, ge=0.0, le=1.0)
     enable_cross_hit: bool = Field(default=False, description="Enable cross-hit cleanup during evaluation")
+    apply_recall_filter: bool = Field(
+        default=True,
+        description="Apply the recall-model leaf truncation before post-cleanup clade prediction. "
+        "When False, post-cleanup operates on the full tree (optionally cross-hit-cleaned).",
+    )
     taxa_threshold: float = Field(default=0.02, ge=0.0, le=1.0)
     holdout_proportion: float = Field(default=0.3, ge=0.0, le=1.0)
     max_training: int | None = Field(default=None, ge=1)
@@ -123,6 +128,7 @@ class EvaluatorConfig(BaseModel):
             tax_level=args.tax_level_to_use,
             cross_hit_threshold=args.cross_hit_threshold,
             enable_cross_hit=args.enable_cross_hit,
+            apply_recall_filter=getattr(args, "apply_recall_filter", True),
             taxa_threshold=args.taxa_threshold,
             holdout_proportion=args.holdout_proportion,
             max_training=int(args.max_training) if args.max_training else None,

@@ -185,7 +185,16 @@ def get_args():
         "--enable-cross-hit",
         action=argparse.BooleanOptionalAction,
         default=False,
-        help="Enable cross-hit cleanup during evaluation (default: enabled)",
+        help="Enable cross-hit modelling and cleanup during evaluation (default: disabled). "
+        "When disabled the cross-hit model is not trained and cross-hit-specific outputs are skipped.",
+    )
+    parser.add_argument(
+        "--apply-recall-filter",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Apply the recall-model leaf truncation before post-cleanup clade prediction "
+        "(default: on). Use --no-apply-recall-filter to isolate the cross-hit cleanup effect "
+        "on the full tree.",
     )
 
     parser.add_argument("--log-format", type=str, default="text", choices=["json", "text"], help="Log output format")
@@ -277,6 +286,13 @@ def main(args):
     logger.info(f"Tax level: {config.tax_level}")
     logger.info(f"MLflow enabled: {config.use_mlflow}")
     logger.info(f"Report enabled: {config.generate_report}")
+    if config.enable_cross_hit:
+        logger.info("Cross-hit modelling and filtering ENABLED (--enable-cross-hit)")
+    else:
+        logger.info(
+            "Cross-hit modelling and filtering DISABLED (default); cross-hit model is not trained "
+            "and cross-hit outputs/plots are skipped. Re-run with --enable-cross-hit to activate."
+        )
     logger.info("=" * 60)
 
     mlflow_tracker = None
@@ -361,8 +377,12 @@ def main(args):
         taxids_to_use=loader.get_taxids_to_use(),
     )
     training_results = training_analyzer.analyze_training_data(training_folders)
+    if config.enable_cross_hit:
+        if training_results:
+            analyze_cross_hit_distribution(training_results, str(config.analysis_output_filepath), top_n=15)
+    else:
+        logger.info("Cross-hit disabled (--no-enable-cross-hit); skipping cross-hit training analysis and plots")
     if training_results:
-        analyze_cross_hit_distribution(training_results, str(config.analysis_output_filepath), top_n=15)
         analyze_spurious_hit_distribution(training_results, str(config.analysis_output_filepath), top_n=15)
 
     logger.info("Evaluating on test datasets...")

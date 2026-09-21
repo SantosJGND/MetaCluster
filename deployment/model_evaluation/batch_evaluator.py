@@ -207,6 +207,7 @@ class BatchEvaluator:
                 "skipped_count": len(skipped),
                 "errors": [str(e) for e in errors],
                 "failed_datasets": ";".join(str(e) for e in errors),
+                "cross_hit_enabled": self.config.enable_cross_hit,
             }
             return result
 
@@ -244,16 +245,22 @@ class BatchEvaluator:
                     "recall_clade_post_cleanup": r.recall.clade_recall_post_cleanup,
                     "recall_after_recall_filter": r.recall.recall_filtered_leaves,
                     "recall_fixed_max_12": r.recall.recall_fixed_filter,
-                    "predicted_cross_hits": r.cross_hit.predicted_cross_hits,
-                    "cross_hit_specificity": r.cross_hit.cross_hit_specificity,
-                    "cross_hit_precision": r.cross_hit.cross_hit_precision,
-                    "cross_hit_recall": r.cross_hit.cross_hit_recall,
-                    "cross_hit_f1": r.cross_hit.cross_hit_f1,
-                    "total_true_cross_hits": r.cross_hit.total_true_cross_hits,
-                    "total_cross_hit_reads_mapped": r.cross_hit.total_cross_hit_reads_mapped,
-                    "cross_hit_counts_per_class": r.cross_hit.cross_hit_counts_per_class,
-                    "cross_hit_reads_per_class": r.cross_hit.cross_hit_reads_per_class,
                 }
+
+                if self.config.enable_cross_hit:
+                    summary_row.update(
+                        {
+                            "predicted_cross_hits": r.cross_hit.predicted_cross_hits,
+                            "cross_hit_specificity": r.cross_hit.cross_hit_specificity,
+                            "cross_hit_precision": r.cross_hit.cross_hit_precision,
+                            "cross_hit_recall": r.cross_hit.cross_hit_recall,
+                            "cross_hit_f1": r.cross_hit.cross_hit_f1,
+                            "total_true_cross_hits": r.cross_hit.total_true_cross_hits,
+                            "total_cross_hit_reads_mapped": r.cross_hit.total_cross_hit_reads_mapped,
+                            "cross_hit_counts_per_class": r.cross_hit.cross_hit_counts_per_class,
+                            "cross_hit_reads_per_class": r.cross_hit.cross_hit_reads_per_class,
+                        }
+                    )
 
                 if r.recall.recall_metrics:
                     for k, v in r.recall.recall_metrics.items():
@@ -312,6 +319,7 @@ class BatchEvaluator:
                     "failed_datasets": ";".join(str(e) for e in errors),
                     "assembly_complete": sum(1 for r in results if r.assembly_complete),
                     "assembly_incomplete": sum(1 for r in results if not r.assembly_complete),
+                    "cross_hit_enabled": self.config.enable_cross_hit,
                 },
             )
 

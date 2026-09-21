@@ -145,15 +145,24 @@ class DatasetProcessor:
             )
             result = self._compute_baseline_metrics(overlap_manager, result, m_stats_baseline)
             result = self._predict_clades_precleanup(data_set_name, overlap_manager, result)
-            result, filtered_om = self._apply_recall_filter(data_set_name, overlap_manager, result=result, m_stats_baseline=m_stats_baseline)
+
+            post_om = overlap_manager
+            if self.config.apply_recall_filter:
+                result, filtered_om = self._apply_recall_filter(
+                    data_set_name, overlap_manager, result=result, m_stats_baseline=m_stats_baseline
+                )
+                post_om = filtered_om
+            else:
+                logger.info("Recall filter disabled; post-cleanup will use the full tree")
+
             result, _ = self._apply_fixed_filter(data_set_name, result=result, max_taxids=12)
 
             if self.config.enable_cross_hit:
-                result = self._apply_crosshit_cleanup(data_set_name, overlap_manager, result)
+                result = self._apply_crosshit_cleanup(data_set_name, post_om, result)
             else:
                 logger.info("Cross-hit cleanup disabled, skipping")
 
-            result = self._predict_clades_postcleanup(data_set_name, filtered_om, result)
+            result = self._predict_clades_postcleanup(data_set_name, post_om, result)
 
             logger.info(f"Completed processing {data_set_name}")
             return result
@@ -296,16 +305,18 @@ class DatasetProcessor:
             logger.warning(f"Failed to compute spurious composition: {e}")
             result.spurious_composition = None
 
-        try:
-            cross_hit_comp = get_cross_hit_composition(
-                result.input_df, m_stats, self.taxids_to_use, tax_level=self.config.tax_level
-            )
-            result.cross_hit_composition = (
-                cross_hit_comp.to_dict(orient="records") if not cross_hit_comp.empty else None
-            )
-        except Exception as e:
-            logger.warning(f"Failed to compute cross-hit composition: {e}")
-            result.cross_hit_composition = None
+        result.cross_hit_composition = None
+        if self.config.enable_cross_hit:
+            try:
+                cross_hit_comp = get_cross_hit_composition(
+                    result.input_df, m_stats, self.taxids_to_use, tax_level=self.config.tax_level
+                )
+                result.cross_hit_composition = (
+                    cross_hit_comp.to_dict(orient="records") if not cross_hit_comp.empty else None
+                )
+            except Exception as e:
+                logger.warning(f"Failed to compute cross-hit composition: {e}")
+                result.cross_hit_composition = None
 
         try:
             from metagenomics_utils.overlap_manager.om_models import get_subset_composition
