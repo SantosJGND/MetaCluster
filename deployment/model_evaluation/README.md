@@ -351,6 +351,29 @@ study_output/
 └── ...
 ```
 
+## Changelog
+
+### 2026-09-21
+
+- **Cross-hit analysis is now optional (default off).** Opt in with
+  `--enable-cross-hit`. When disabled: the cross-hit model is not trained, the 9
+  `cross_hit_*` columns are absent from `test_datasets_summary_results.tsv` (not
+  zero-filled), and `cross_hit_xgb_bundle.pkl`, `crosshit_model.joblib`,
+  `test_datasets_cross_hit_composition.tsv`, `cross_hit_metrics_*.tsv`,
+  `cross_hit_summary_statistics.tsv`, and the cross-hit PNG plots are not
+  generated. The skip is recorded as a `cross_hit_enabled` row in
+  `pipeline_metadata.tsv` / `evaluation_results.json` metadata and as a startup
+  marker in `evaluate.log`.
+- **Coherence fix: post-cleanup clade columns now reflect the actual cleanups.**
+  `precision_clade_post_cleanup`, `recall_clade_post_cleanup`,
+  `precision_clade_fixed`, and `recall_fixed_max_12` are computed on the
+  recall-filtered tree by default (optionally cross-hit-cleaned with
+  `--enable-cross-hit`) instead of the full overlap matrix. Added
+  `recall_after_recall_filter` / `recall_fixed_max_12` summary columns.
+  `--no-apply-recall-filter` restores full-tree post-cleanup behavior, in which
+  case the recall model is not invoked and the `recall_metric_*` diagnostics and
+  `recall_filtered_leaves` are absent.
+
 ## Dependencies
 
 - Python 3.10+

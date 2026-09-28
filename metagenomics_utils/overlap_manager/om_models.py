@@ -87,7 +87,7 @@ def traversal_with_precision(
     new_precision = len(node_children) / len(set(node_true_leaves)) if len(node_true_leaves) > 0 else 0.0
     new_precision = 1 / new_precision if new_precision > 1 else new_precision
 
-    precision_increased = new_precision > node_precision
+    precision_increased = new_precision >= node_precision
 
     # stop conditions
     stop_traversal = not precision_increased
