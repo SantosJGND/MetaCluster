@@ -207,11 +207,49 @@ class TestBestMatchMarking:
         finally:
             monkey.undo()
 
-        best = out[out["best_match_is_best"] == True]
+        best = out[out["best_match_is_best"]]
         assert set(int(t) for t in best["best_match_taxid"]) == {11676, 10359}
-        zero_cov_best = out[(out["coverage"] == 0.0) & (out["best_match_is_best"] == True)]
+        zero_cov_best = out[(out["coverage"] == 0.0) & (out["best_match_is_best"])]
         assert len(zero_cov_best) == 1
         assert np.isclose(zero_cov_best["best_match_score"].iloc[0], 1.0)
+
+    def test_covered_assembly_preferred_over_zero_coverage_high_score(self):
+        """A covered assembly is marked best even when a zero-coverage one scores higher."""
+        from metagenomics_utils.overlap_manager import node_stats
+
+        m_stats = pd.DataFrame(
+            {
+                "taxid": [11676, 11676],
+                "assid": ["NC_001802.1", "NC_006273.2"],
+                "coverage": [0.0, 12.5],
+                "error_rate": [0.0, 0.01],
+                "numreads": [0, 100],
+                "total_uniq_reads": [10, 100],
+                "best_match_taxid": [11676, 11676],
+                "best_match_level": ["species", "species"],
+                "best_match_score": [1.0, 0.8],
+            }
+        )
+
+        class _OM:
+            leaves = ["NC_001802.1", "NC_006273.2"]
+
+        monkey = pytest.MonkeyPatch()
+        try:
+            monkey.setattr(node_stats, "dataframe_update_with_lineage", lambda df, w: df)
+            monkey.setattr(
+                "metagenomics_utils.overlap_manager.manager.merge_by_assembly_ID", lambda df: df, raising=True
+            )
+            monkey.setattr(node_stats, "update_df_best_match", lambda row, *a, **k: row)
+            wrapper = _FakeWrapper(lineages={11676: {}})
+            out = node_stats._compute_best_matches(m_stats, [11676], wrapper, _OM(), 0.7)
+        finally:
+            monkey.undo()
+
+        best = out[out["best_match_is_best"]]
+        assert len(best) == 1
+        assert best["assid"].iloc[0] == "NC_006273.2"  # the covered assembly wins
+        assert best["coverage"].iloc[0] > 0
 
 
 # ---------------------------------------------------------------------------

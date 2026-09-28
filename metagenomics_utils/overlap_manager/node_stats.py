@@ -285,12 +285,14 @@ def _compute_best_matches(m_stats, input_taxids, ncbi_wrapper, overlap_manager, 
             f"(lineage-based matching scores 0.0 for them): {sorted(missing_lineages)[:10]}{'...' if len(missing_lineages) > 10 else ''}"
         )
 
-    # mark one best match per group
+    # mark one best match per group; prefer a covered assembly whenever one exists
     groups = []
     m_stats["best_match_is_best"] = False
+    m_stats["_has_cov"] = m_stats["coverage"].fillna(0.0) > 0
     for _, group in m_stats.groupby("best_match_taxid"):
         group = group.sort_values(
-            by=["best_match_score", "coverage", "error_rate"], ascending=[False, False, True]
+            by=["_has_cov", "best_match_score", "coverage", "error_rate"],
+            ascending=[False, False, False, True],
         ).reset_index(drop=True)
         found = False
         for ix, row in group.iterrows():
@@ -303,6 +305,7 @@ def _compute_best_matches(m_stats, input_taxids, ncbi_wrapper, overlap_manager, 
 
     groups.append(m_stats[m_stats["best_match_taxid"].isna()])
     m_stats = pd.concat(groups, ignore_index=True)
+    m_stats.drop(columns=["_has_cov"], inplace=True)
 
     return m_stats
 

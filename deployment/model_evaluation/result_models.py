@@ -288,6 +288,9 @@ class BatchEvaluationResult:
             "recall_clade_post_cleanup",
             "recall_after_recall_filter",
             "recall_fixed_max_12",
+            "recall_baseline_cov_gap",
+            "recall_classification_credit",
+            "recall_zero_coverage_loss",
         ]
         cross_hit_cols = [
             "cross_hit_precision",

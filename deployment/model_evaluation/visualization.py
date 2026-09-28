@@ -116,11 +116,8 @@ class ResultVisualizer:
             print("No 'sample' column found for precision comparison.")
             return
 
-        melted = (
-            summary_results[summary_results["recall_baseline"] > 0]
-            if "recall_baseline" in summary_results.columns
-            else summary_results
-        )
+        if "recall_baseline" in summary_results.columns:
+            summary_results = summary_results[summary_results["recall_baseline"] > 0]
         melted = summary_results.melt(
             id_vars=["sample"], value_vars=available_cols, var_name="Metric", value_name="Value"
         )

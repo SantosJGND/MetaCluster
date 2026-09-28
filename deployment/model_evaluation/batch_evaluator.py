@@ -241,6 +241,9 @@ class BatchEvaluator:
                     "recall_baseline_cov_filtered": r.recall.recall_cov_filtered,
                     "recall_baseline_assembly": r.recall.recall_assembly_raw,
                     "recall_baseline_classification": r.recall.recall_classification_raw,
+                    "recall_baseline_cov_gap": r.recall.recall_raw - r.recall.recall_cov_filtered,
+                    "recall_classification_credit": r.recall.recall_raw - r.recall.recall_assembly_raw,
+                    "recall_zero_coverage_loss": r.recall.recall_assembly_raw - r.recall.recall_cov_filtered,
                     "recall_clade_pre_cleanup": r.recall.clade_recall_pre_cleanup,
                     "recall_clade_post_cleanup": r.recall.clade_recall_post_cleanup,
                     "recall_after_recall_filter": r.recall.recall_filtered_leaves,
@@ -392,6 +395,42 @@ class BatchEvaluator:
             stats_path = os.path.join(output_dir, "precision_summary_statistics.tsv")
             stats.to_csv(stats_path, sep="\t")
             logger.info(f"Saved summary statistics to {stats_path}")
+
+        recall_cols = [
+            "recall_baseline",
+            "recall_baseline_cov_filtered",
+            "recall_baseline_assembly",
+            "recall_baseline_classification",
+            "recall_clade_pre_cleanup",
+            "recall_clade_post_cleanup",
+            "recall_after_recall_filter",
+            "recall_fixed_max_12",
+            "recall_baseline_cov_gap",
+            "recall_classification_credit",
+            "recall_zero_coverage_loss",
+        ]
+
+        available_recall_cols = [c for c in recall_cols if c in result.summary_results.columns]
+
+        if not available_recall_cols:
+            logger.warning("No recall columns found for summary statistics")
+        else:
+            recall_summary = result.summary_results[available_recall_cols]
+            recall_stats = recall_summary.describe().T
+            recall_stats_path = os.path.join(output_dir, "recall_summary_statistics.tsv")
+            recall_stats.to_csv(recall_stats_path, sep="\t")
+            logger.info(f"Saved summary statistics to {recall_stats_path}")
+
+            recall_complete = (
+                result.summary_results[result.summary_results["assembly_complete"].astype(bool)]
+                if "assembly_complete" in result.summary_results.columns
+                else result.summary_results
+            )
+            if len(recall_complete) > 0 and len(recall_complete) < len(result.summary_results):
+                recall_complete_stats = recall_complete[available_recall_cols].describe().T
+                recall_complete_stats_path = os.path.join(output_dir, "recall_complete_summary_statistics.tsv")
+                recall_complete_stats.to_csv(recall_complete_stats_path, sep="\t")
+                logger.info(f"Saved assembly-complete recall summary statistics to {recall_complete_stats_path}")
 
         cross_hit_cols = [
             "cross_hit_precision",

@@ -419,6 +419,7 @@ def main(args):
         )
     results.save_tsv(str(config.analysis_output_filepath))
     results.to_json(str(config.analysis_output_filepath / "evaluation_results.json"))
+    results.write_agent_output(str(config.analysis_output_filepath / "evaluation_results_agent.json"))
     results.save_metadata(str(config.analysis_output_filepath))
     evaluator.save_summary_statistics(results, str(config.analysis_output_filepath))
 

@@ -210,7 +210,10 @@ corrected store flips most datasets to pass.
 | `test_datasets_spurious_composition.tsv` | Spurious (unclassified) composition |
 | `test_datasets_cross_hit_composition.tsv` | Cross-hit composition (`--enable-cross-hit` only) |
 | `precision_summary_statistics.tsv` | Summary statistics for precision metrics |
+| `recall_summary_statistics.tsv` | Summary statistics for recall metrics (incl. baseline gap decomposition) |
+| `recall_complete_summary_statistics.tsv` | Same, restricted to datasets passing the assembly-completeness gate (only when some datasets fail it) |
 | `cross_hit_summary_statistics.tsv` | Summary statistics for cross-hit metrics (`--enable-cross-hit` only) |
+| `evaluation_results_agent.json` | Agent-parseable JSON with per-column aggregate statistics (mean/median/std/quartiles) |
 | `models/` | Trained model files (`cross_hit_xgb_bundle.pkl` only with `--enable-cross-hit`) |
 | `models/` | Trained model files |
 | `models/cache/` | Cached training data (parquet files) |
@@ -273,6 +276,24 @@ html_path = visualizer.generate_html_report(results)
 | `recall_cov_filtered` | After coverage filter |
 | `clade_recall` | Composition-model clade prediction on the full tree (before recall filter or cross-hit cleanup) |
 | `recall_filtered_leaves` | After leaf filtering |
+
+#### Baseline recall decomposition
+
+The gap between `recall_baseline` and `recall_baseline_cov_filtered` is decomposed
+into two attributable columns on every `test_datasets_summary_results.tsv` row:
+
+| Column | Definition | Meaning |
+|--------|-----------|---------|
+| `recall_classification_credit` | `recall_baseline − recall_baseline_assembly` | Input taxids credited only by classifier evidence (`uniq_reads > 0`) with no best-matched assembly |
+| `recall_zero_coverage_loss` | `recall_baseline_assembly − recall_baseline_cov_filtered` | Best-matched assemblies whose leaf has `coverage == 0` (mapping-stage loss) |
+| `recall_baseline_cov_gap` | `recall_baseline − recall_baseline_cov_filtered` | The two components summed |
+
+> Best-match marking (`_compute_best_matches`, `metagenomics_utils/overlap_manager/node_stats.py`)
+> prefers a **covered** assembly within a `best_match_taxid` group: coverage>0 rows sort ahead of
+> zero-coverage rows (score still decides within each coverage class), so a taxid whose top-scoring
+> assembly has `coverage == 0` is still counted by `recall_baseline_cov_filtered` when a covered
+> assembly exists. Single-candidate groups (the legacy F4 case) are unchanged.
+> `recall_baseline` itself is unaffected — every group still emits one best row.
 
 ### Pre- vs Post-Cleanup Semantics
 
