@@ -251,6 +251,10 @@ def expand_input_data(
     input_tax_df = pd.DataFrame(all_input_data["taxid"].dropna().unique(), columns=["taxid"])
     input_tax_df["order"] = input_tax_df.apply(lambda row: ncbi_wrapper.get_level(row["taxid"], "order"), axis=1)
     input_tax_df["family"] = input_tax_df.apply(lambda row: ncbi_wrapper.get_level(row["taxid"], "family"), axis=1)
+    # genus must be resolved for real taxids too; previously only the sentinel
+    # row carried one, so every resolved NaN collapsed to "unclassified" and the
+    # genus column of test_datasets_input_df.tsv carried no information.
+    input_tax_df["genus"] = input_tax_df.apply(lambda row: ncbi_wrapper.get_level(row["taxid"], "genus"), axis=1)
     input_tax_df = input_tax_df.drop_duplicates(subset=["taxid"])
 
     unclassified_row = pd.DataFrame(

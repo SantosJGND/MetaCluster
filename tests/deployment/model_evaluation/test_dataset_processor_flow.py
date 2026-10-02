@@ -60,11 +60,16 @@ def _wire_process(processor: DatasetProcessor, om, filtered_om, result) -> None:
     """Replace every step of ``process()`` with mocks returning sentinels."""
     processor._load_data = MagicMock(return_value=(om, INPUT_SUMMARY))
     processor._compute_baseline_metrics = MagicMock(return_value=result)
-    processor._predict_clades_precleanup = MagicMock(return_value=result)
-    processor._apply_recall_filter = MagicMock(return_value=(result, filtered_om))
+    # ``keep_index`` is the leaf rank the recall filter truncated at, reused by
+    # the reference-detail tables to attribute losses to truncation. The fixed
+    # filter's equivalent index is ``max_taxids``, passed in by ``process()``.
+    processor._apply_recall_filter = MagicMock(return_value=(result, filtered_om, 12))
     processor._apply_fixed_filter = MagicMock(return_value=(result, MagicMock()))
     processor._apply_crosshit_cleanup = MagicMock(return_value=result)
-    processor._predict_clades_postcleanup = MagicMock(return_value=result)
+    # The clade passes return their predicted-clade frames so ``process()`` can
+    # attribute per-reference clade membership; None stands in for "no clades".
+    processor._predict_clades_precleanup = MagicMock(return_value=(result, None))
+    processor._predict_clades_postcleanup = MagicMock(return_value=(result, None, None))
 
 
 class TestPostCleanupOMChaining:

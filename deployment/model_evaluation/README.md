@@ -25,6 +25,7 @@ It then generates comprehensive metrics and visualizations comparing predicted v
 | `visualization.py` | Plot generation |
 | `metrics.py` | Metric calculations |
 | `result_models.py` | Data structures for results |
+| `reference_details.py` | Per-reference (`loss_stage`) and per-leaf tracking tables |
 | `config.py` | Configuration classes |
 | `analysis_scripts/` | Experimental analysis scripts (sort-strategy comparison, composition model comparison, last-TP-division prediction) |
 
@@ -204,6 +205,8 @@ corrected store flips most datasets to pass.
 
 | File | Description |
 |------|-------------|
+| `test_datasets_input_df.tsv` | Per-reference tracking table; one row per `(data_set, input taxid)`. Historical 12-column schema unchanged, followed by classifier/mapping/clade evidence and a `loss_stage` funnel |
+| `test_datasets_reference_leaves.tsv` | Per-leaf tracking table; one row per `(data_set, input taxid, matched assembly)`. Explains each `loss_stage` |
 | `test_datasets_overall_precision.tsv` | Per-dataset precision scores |
 | `test_datasets_summary_results.tsv` | Detailed metrics per dataset |
 | `pipeline_metadata.tsv` | Run summary (dataset counts, skipped/failed names) |
@@ -295,6 +298,90 @@ into two attributable columns on every `test_datasets_summary_results.tsv` row:
 > assembly exists. Single-candidate groups (the legacy F4 case) are unchanged.
 > `recall_baseline` itself is unaffected — every group still emits one best row.
 
+### Per-Reference Loss Attribution
+
+Aggregate recall says *how much* was recovered but not *which references were lost or
+why*. `reference_details.py` adds that attribution to two tables (full column reference
+in `output_description.md`):
+
+- `test_datasets_input_df.tsv` — the existing per-`(data_set, taxid)` table, widened in
+  place. The historical 12 columns keep their names and order; classifier evidence,
+  best-match leaf statistics, clade membership and a `loss_stage` bucket are appended.
+- `test_datasets_reference_leaves.tsv` — one row per `(data_set, taxid, matched
+  assembly)`, so each `loss_stage` can be traced to the leaves that caused it.
+
+`loss_stage` is an ordered **first-match** cascade in pipeline order
+(`absent_classification` → `survived_classifier_only` → `classified_no_assembly` →
+`assembly_no_coverage` → `assembly_zero_reads` → `lost_recall_truncation` →
+`lost_clade_prediction` → `survived_post_cleanup`). Each reference lands in exactly one
+bucket, so the counts form a proper funnel. The names `absent_classification`,
+`classified_no_assembly`, `assembly_no_coverage` and `assembly_zero_reads` are kept
+identical to `analysis_scripts/diagnose_recall_gap.py` so the two diagnostics can be
+compared directly.
+
+**`loss_stage` uses the same definition as the headline recall.** A reference is recalled
+(classification-aware, matching `recall_baseline`) when it has a clean assembly match
+(`n_clean_matches > 0`) **or** the classifier called it. Only two buckets are therefore
+actual recall losses — `absent_classification` and `classified_no_assembly` — which gives
+the invariant:
+
+```python
+recalled_classification_aware == loss_stage not in ("absent_classification", "classified_no_assembly")
+```
+
+Every other bucket describes how far an already-recalled reference got. In particular a
+reference the classifier found but that has no clean assembly match is
+`survived_classifier_only`, **not** `classified_no_assembly`: labelling it a loss would
+contradict the reported recall. The `recalled_classification_aware`,
+`recalled_assembly` and `recalled_classifier_only` flags make the decomposition explicit
+so the invariant can be asserted directly on the table.
+
+Two conditions were dropped from the cascade because they can never win it, and are
+reported instead through the `lost_no_best_match` / `lost_best_match_trash` flags and the
+`n_clean_matches` / `is_trash_best` columns:
+
+- `no_best_match` — a reference with leaves always has a best match.
+- `best_match_trash` — a clean match means the best leaf is not trash, and a trash-only
+  reference is recalled by the classifier.
+
+The boolean flags alongside `loss_stage` are deliberately **independent** rather than a
+copy of it: a reference that fails several conditions reports every applicable flag, so
+the flags can be used to verify the cascade.
+
+| Flag group | Flags |
+|---|---|
+| Recall decomposition | `recalled_classification_aware`, `recalled_assembly`, `recalled_classifier_only` |
+| Upstream evidence | `lost_before_classification`, `lost_assembly_lookup` (no *clean* assembly match, independent of recall), `lost_no_coverage`, `lost_zero_reads` |
+| Diagnostics (unreachable as stages) | `lost_no_best_match`, `lost_best_match_trash` |
+| Downstream | `lost_recall_truncation`, `lost_clade_prediction`, `survived_post_cleanup` |
+
+Note `lost_assembly_lookup` is independent of recall: a classifier-credited reference whose
+only leaves are trash is `lost_assembly_lookup` yet still recalled.
+
+Key design points:
+
+- Everything keys on `m_stats["best_match_taxid"]`, which is what `metrics.compute_recall`
+  and `compute_clade_recall` use. `output/matched_assemblies.tsv` is **not** the join key —
+  its `taxid` column holds the matched *assembly's* taxid, so joining input taxids on it
+  reports that nothing was ever matched.
+- `n_clean_matches` reproduces the recall criterion exactly (≥1 leaf with
+  `is_trash == False and best_match_is_best == True`), so `n_clean_matches > 0` yields
+  the same taxid set as `compute_recall`.
+- `classifier_uniq_reads` is empty rather than `0` when the classification table carries no
+  read-count column, so "unavailable" stays distinguishable from "zero reads".
+  `classifier_reads_available` makes the same distinction explicit, because
+  `analysis_data_extractor.load_classifier_detected_taxids()` drops its `uniq_reads > 0`
+  filter entirely when the column is absent — on such (legacy) studies *every* taxid in
+  the classification table counts as detected. `loss_stage` reproduces that behaviour
+  rather than assuming a zero count.
+- Building these tables is best-effort: a failure logs a warning and emits the row without
+  the new columns rather than aborting a run whose metrics are already computed.
+
+> Known issue: `--max_taxids_fixed_filter` / `EvaluatorConfig.max_taxids_fixed_filter`
+> are accepted but never read — `_apply_fixed_filter` uses a hard-coded `12`. The limit
+> also truncates leaf rows, not unique taxids. See `output_description.md`
+> § "Known issue — `max_taxids_fixed_filter` is not wired up".
+
 ### Pre- vs Post-Cleanup Semantics
 
 The "pre-cleanup" / "post-cleanup" clade metrics measure the composition model's
@@ -373,6 +460,28 @@ study_output/
 ```
 
 ## Changelog
+
+### 2026-10-02
+
+- **Per-reference loss attribution.** `test_datasets_input_df.tsv` is widened in place
+  (no new flag): the historical 12 columns keep their names and order, and classifier
+  evidence, best-match leaf statistics, clade membership (pre/post/fixed), an ordered
+  `loss_stage` funnel and independent `lost_*` flags are appended. New
+  `test_datasets_reference_leaves.tsv` gives one row per
+  `(data_set, taxid, matched assembly)` so each funnel bucket can be traced to its
+  leaves. See § "Per-Reference Loss Attribution". Implementation in the new
+  `reference_details.py`.
+- **`dataset_processor` internal signature changes.** `_predict_clades_precleanup` now
+  returns `(result, clades_df)`, `_predict_clades_postcleanup` returns
+  `(result, clades_df, fixed_clades_df)`, and `_apply_recall_filter` returns a third
+  element, `keep_index`. These are private methods; `process()` collects the frames
+  explicitly rather than through a mutable out-parameter.
+- **`input_df["genus"]` is now populated.** `data_loader.expand_input_data` resolves the
+  genus when the input table does not carry one, matching how it already handled
+  `order`/`family`.
+- Documented that `--max_taxids_fixed_filter` / `EvaluatorConfig.max_taxids_fixed_filter`
+  are accepted but never read (`_apply_fixed_filter` hard-codes `12`), and that the limit
+  truncates leaf rows rather than unique taxids. Behaviour unchanged.
 
 ### 2026-09-21
 

@@ -149,6 +149,7 @@ class DatasetResult:
 
     spurious_composition: dict | None = None
     cross_hit_composition: dict | None = None
+    reference_leaves: pd.DataFrame | None = None
 
     def to_dict(self) -> dict:
         result = {
@@ -202,6 +203,7 @@ class DatasetResult:
 @dataclass
 class BatchEvaluationResult:
     input_df: pd.DataFrame = field(default_factory=pd.DataFrame)
+    reference_leaves: pd.DataFrame = field(default_factory=pd.DataFrame)
     test_results: pd.DataFrame = field(default_factory=pd.DataFrame)
     summary_results: pd.DataFrame = field(default_factory=pd.DataFrame)
     spurious_composition: pd.DataFrame = field(default_factory=pd.DataFrame)
@@ -243,6 +245,7 @@ class BatchEvaluationResult:
     def save_tsv(self, output_dir: str) -> None:
         """Save DataFrames to TSV files (legacy format)."""
         self.input_df.to_csv(f"{output_dir}/test_datasets_input_df.tsv", sep="\t", index=False)
+        self.reference_leaves.to_csv(f"{output_dir}/test_datasets_reference_leaves.tsv", sep="\t", index=False)
         self.test_results.to_csv(f"{output_dir}/test_datasets_overall_precision.tsv", sep="\t", index=False)
         self.summary_results.to_csv(f"{output_dir}/test_datasets_summary_results.tsv", sep="\t", index=False)
         self.spurious_composition.to_csv(f"{output_dir}/test_datasets_spurious_composition.tsv", sep="\t", index=False)

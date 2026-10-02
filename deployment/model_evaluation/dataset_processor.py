@@ -33,6 +33,15 @@ from .metrics import (
     compute_recall,
     safe_divide,
 )
+from .reference_details import (
+    apply_clade_membership,
+    assign_loss_stages,
+    build_reference_leaf_table,
+    load_reference_evidence,
+    mark_clade_leaves,
+    mark_filter_survival,
+    order_reference_detail,
+)
 from .result_models import (
     DatasetResult,
     PrecisionMetrics,
@@ -144,25 +153,42 @@ class DatasetProcessor:
                 data_set_name, self.config.study_output_filepath, self.ncbi, overlap_manager, filter_no_leaf=False
             )
             result = self._compute_baseline_metrics(overlap_manager, result, m_stats_baseline)
-            result = self._predict_clades_precleanup(data_set_name, overlap_manager, result)
+
+            # Per-stage frames are collected as locals so the reference-detail
+            # tables can be assembled once at the end of process(), after every
+            # filter and clade pass has run.
+            result, clades_pre = self._predict_clades_precleanup(data_set_name, overlap_manager, result)
 
             post_om = overlap_manager
+            keep_index = None
             if self.config.apply_recall_filter:
-                result, filtered_om = self._apply_recall_filter(
+                result, filtered_om, keep_index = self._apply_recall_filter(
                     data_set_name, overlap_manager, result=result, m_stats_baseline=m_stats_baseline
                 )
                 post_om = filtered_om
             else:
                 logger.info("Recall filter disabled; post-cleanup will use the full tree")
 
-            result, _ = self._apply_fixed_filter(data_set_name, result=result, max_taxids=12)
+            fixed_keep_index = 12
+            result, _ = self._apply_fixed_filter(data_set_name, result=result, max_taxids=fixed_keep_index)
 
             if self.config.enable_cross_hit:
                 result = self._apply_crosshit_cleanup(data_set_name, post_om, result)
             else:
                 logger.info("Cross-hit cleanup disabled, skipping")
 
-            result = self._predict_clades_postcleanup(data_set_name, post_om, result)
+            result, clades_post, clades_fixed = self._predict_clades_postcleanup(data_set_name, post_om, result)
+
+            self._build_reference_details(
+                data_set_name,
+                result,
+                m_stats_baseline=m_stats_baseline,
+                clades_pre=clades_pre,
+                clades_post=clades_post,
+                clades_fixed=clades_fixed,
+                keep_index=keep_index,
+                fixed_keep_index=fixed_keep_index,
+            )
 
             logger.info(f"Completed processing {data_set_name}")
             return result
@@ -380,7 +406,7 @@ class DatasetProcessor:
 
     def _apply_recall_filter(
         self, data_set_name: str, overlap_manager: OverlapManager, result: DatasetResult, m_stats_baseline: pd.DataFrame
-    ) -> tuple[DatasetResult, OverlapManager]:
+    ) -> tuple[DatasetResult, OverlapManager, int | None]:
         """
         Apply recall prediction model to filter leaves.
 
@@ -391,7 +417,7 @@ class DatasetProcessor:
             m_stats_baseline: Pre-computed m_stats matrix for the original OM
 
         Returns:
-            Updated DatasetResult
+            Tuple of (Updated DatasetResult, filtered OverlapManager, keep_index)
         """
         m_stats = m_stats_baseline
 
@@ -438,12 +464,13 @@ class DatasetProcessor:
         result.recall.recall_metrics = metrics_dict
 
         overlap_manager = filtered_om
+        keep_index = metrics_dict.get("keep_index")
 
-        return result, overlap_manager
+        return result, overlap_manager, keep_index
 
     def _predict_clades_precleanup(
         self, data_set_name: str, overlap_manager: OverlapManager, result: DatasetResult
-    ) -> DatasetResult:
+    ) -> tuple[DatasetResult, pd.DataFrame | None]:
         """
         Run clade prediction before cross-hit cleanup.
 
@@ -453,7 +480,7 @@ class DatasetProcessor:
             result: Result object to populate
 
         Returns:
-            Updated DatasetResult
+            Tuple of (Updated DatasetResult, predicted clades frame or None)
         """
         m_stats = get_m_stats_matrix(
             data_set_name, self.config.study_output_filepath, self.ncbi, overlap_manager, filter_no_leaf=True
@@ -473,7 +500,7 @@ class DatasetProcessor:
             import traceback
 
             logger.debug(traceback.format_exc())
-            return result
+            return result, None
 
         precision = calculate_clade_precision(results_df, result.input_df)
 
@@ -482,7 +509,7 @@ class DatasetProcessor:
 
         result.recall.clade_recall_pre_cleanup = compute_clade_recall(results_df, result.input_df)
 
-        return result
+        return result, results_df
 
     def _apply_crosshit_cleanup(
         self, data_set_name: str, overlap_manager: OverlapManager, result: DatasetResult
@@ -553,7 +580,7 @@ class DatasetProcessor:
 
     def _predict_clades_postcleanup(
         self, data_set_name: str, overlap_manager: OverlapManager, result: DatasetResult
-    ) -> DatasetResult:
+    ) -> tuple[DatasetResult, pd.DataFrame | None, pd.DataFrame | None]:
         """
         Final clade prediction after all cleanup.
 
@@ -563,14 +590,15 @@ class DatasetProcessor:
             result: Result object to populate
 
         Returns:
-            Updated DatasetResult
+            Tuple of (Updated DatasetResult, post-cleanup clades frame or None,
+            fixed clades frame or None)
         """
         if overlap_manager.m_stats_matrix.shape[0] < 1:
-            logger.debug(f"postcleanup guard triggered for {data_set_name}: m_stats_matrix.shape={overlap_manager.m_stats_matrix.shape[0]}, leaves={len(overlap_manager.leaves)}, root_nodes={len(overlap_manager.root_nodes)}, tree_edges={overlap_manager.tree.number_of_edges()}")
+            logger.debug(f"postcleanup guard triggered for {data_set_name}: m_stats_matrix.shape={overlap_manager.m_stats_matrix.shape[0]}, leaves={len(overlap_manager.leaves)}, root_nodes={overlap_manager.root_nodes}, tree_edges={overlap_manager.tree.number_of_edges()}")
             logger.warning(f"Not enough leaves after cleanup for {data_set_name}")
             result.predicted_clades_post = 0
             result.precision.clade_precision_post = 0.0
-            return result
+            return result, None, None
 
         m_stats = get_m_stats_matrix(
             data_set_name, self.config.study_output_filepath, self.ncbi, overlap_manager, filter_no_leaf=True
@@ -593,7 +621,7 @@ class DatasetProcessor:
             result.predicted_clades_fixed = 0
             result.precision.clade_precision_fixed = 0.0
             logger.debug(f"postcleanup {data_set_name}: fixed clade prediction failed: {e}")
-            return result
+            return result, None, None
 
         logger.debug(f"######### FIXED CLADES {data_set_name} #########")
         logger.debug(f"Predicted clades: {len(fixed_result_df)}, Precision: {result.precision.clade_precision_fixed:.4f}")
@@ -612,13 +640,13 @@ class DatasetProcessor:
             result.predicted_clades_post = 0
             result.precision.clade_precision_post = 0.0
             logger.debug(f"postcleanup {data_set_name}: composition prediction failed: {e}")
-            return result
+            return result, None, fixed_result_df
 
         if result_df.empty:
             result.predicted_clades_post = 0
             result.precision.clade_precision_post = 0.0
             logger.debug(f"postcleanup {data_set_name}: composition prediction returned empty DataFrame")
-            return result
+            return result, None, fixed_result_df
 
         precision = calculate_clade_precision(result_df, result.input_df)
         if precision == 0.0:
@@ -632,4 +660,84 @@ class DatasetProcessor:
 
         result.recall.clade_recall_post_cleanup = compute_clade_recall(result_df, result.input_df)
 
-        return result
+        return result, result_df, fixed_result_df
+
+
+    def _build_reference_details(
+        self,
+        data_set_name: str,
+        result: DatasetResult,
+        m_stats_baseline: pd.DataFrame | None,
+        clades_pre: pd.DataFrame | None = None,
+        clades_post: pd.DataFrame | None = None,
+        clades_fixed: pd.DataFrame | None = None,
+        keep_index: int | None = None,
+        fixed_keep_index: int | None = None,
+    ) -> None:
+        """
+        Assemble the wide per-reference and long per-leaf tracking tables.
+
+        Runs after every filter and clade pass so that ``loss_stage`` reflects
+        the final state of the pipeline. Failures here are logged and swallowed:
+        the reference tables are diagnostic detail and must not abort a run that
+        has already produced its metrics.
+        """
+        try:
+            m_stats = m_stats_baseline
+            input_taxids = result.input_df["taxid"].dropna().astype(int).unique().tolist()
+
+            detail = load_reference_evidence(
+                self.config.study_output_filepath, data_set_name, m_stats, input_taxids
+            )
+
+            # Join the detail columns onto the existing per-input frame, keeping
+            # the legacy column set and order intact.
+            merged = result.input_df.merge(detail, on="taxid", how="left", suffixes=("", "_detail"))
+            merged = merged.drop(columns=[c for c in merged.columns if c.endswith("_detail")])
+
+            apply_clade_membership(merged, clades_pre, m_stats, "pre")
+            apply_clade_membership(merged, clades_post, m_stats, "post")
+            apply_clade_membership(merged, clades_fixed, m_stats, "fixed")
+
+            assign_loss_stages(
+                merged,
+                keep_index=keep_index,
+                recall_filter_applied=bool(self.config.apply_recall_filter),
+            )
+
+            legacy_columns = [c for c in result.input_df.columns]
+            ordered = [c for c in order_reference_detail(merged).columns if c in merged.columns]
+            final_columns = legacy_columns + [c for c in ordered if c not in legacy_columns]
+            result.input_df = merged[final_columns]
+
+            leaves = build_reference_leaf_table(data_set_name, m_stats, input_taxids)
+            mark_filter_survival(leaves, keep_index, fixed_keep_index)
+            mark_clade_leaves(leaves, clades_pre, m_stats, "pre")
+            mark_clade_leaves(leaves, clades_post, m_stats, "post")
+            mark_clade_leaves(leaves, clades_fixed, m_stats, "fixed")
+            result.reference_leaves = leaves
+
+            logger.debug(
+                f"reference details for {data_set_name}: {len(merged)} references, "
+                f"{len(leaves)} leaves, loss stages="
+                f"{merged['loss_stage'].value_counts().to_dict() if not merged.empty else {}}"
+            )
+
+        except Exception as e:
+            logger.warning(
+                f"Failed to build reference details for {data_set_name}: {type(e).__name__}: {e}. "
+                "The per-reference and per-leaf tracking tables will be missing for this dataset; "
+                "metrics are unaffected."
+            )
+            import traceback
+
+            # Loud, because a silent failure here drops the whole feature for
+            # this dataset with no other visible symptom.
+            logger.warning(traceback.format_exc())
+            # Best-effort reset. Guarded so that a partially-built result (or a
+            # stand-in used by tests) cannot turn a non-fatal diagnostic failure
+            # into an aborted run.
+            try:
+                result.reference_leaves = None
+            except Exception:
+                pass

@@ -12,9 +12,24 @@ from tqdm import tqdm
 from .config import EvaluatorConfig, TrainedModels
 from .dataset_processor import DatasetProcessor
 from .exceptions import EvaluatorError, ResultsAggregationError
+from .reference_details import LEAF_COLUMNS, LEGACY_INPUT_DF_COLUMNS
 from .result_models import BatchEvaluationResult, DatasetResult, create_empty_result
 
 logger = logging.getLogger(__name__)
+
+
+def _order_legacy_input_df(input_df: pd.DataFrame) -> pd.DataFrame:
+    """Move ``data_set`` back into the legacy column block.
+
+    ``DatasetProcessor`` appends the reference-detail columns to the per-dataset
+    frame, and ``data_set`` is only known once datasets are aggregated. Without
+    this, ``data_set`` would end up *after* the new columns, breaking the
+    documented ``test_datasets_input_df.tsv`` column order. Any legacy column the
+    caller did not produce is skipped rather than silently inserted as NaN.
+    """
+    legacy = [c for c in LEGACY_INPUT_DF_COLUMNS if c in input_df.columns]
+    extra = [c for c in input_df.columns if c not in LEGACY_INPUT_DF_COLUMNS]
+    return input_df[legacy + extra]
 
 
 class BatchEvaluator:
@@ -214,6 +229,7 @@ class BatchEvaluator:
         try:
             summary_dfs = []
             input_dfs = []
+            leaf_dfs = []
             test_records = []
             spurious_dfs = []
             cross_hit_dfs = []
@@ -276,7 +292,10 @@ class BatchEvaluator:
                 if r.input_df is not None:
                     input_df = pd.DataFrame(r.input_df)
                     input_df["data_set"] = r.data_set
-                    input_dfs.append(input_df)
+                    input_dfs.append(_order_legacy_input_df(input_df))
+
+                if r.reference_leaves is not None and not r.reference_leaves.empty:
+                    leaf_dfs.append(pd.DataFrame(r.reference_leaves))
 
                 summary_dfs.append(pd.DataFrame([summary_row]))
 
@@ -301,6 +320,13 @@ class BatchEvaluator:
                     cross_hit_dfs.append(cross_hit_df)
 
             input_df = pd.concat(input_dfs, ignore_index=True) if input_dfs else pd.DataFrame()
+            # Always carry the full leaf schema so the TSV keeps its header even
+            # when every dataset produced no leaves.
+            reference_leaves = (
+                pd.concat(leaf_dfs, ignore_index=True)
+                if leaf_dfs
+                else pd.DataFrame(columns=["data_set"] + list(LEAF_COLUMNS))
+            )
             summary_results = pd.concat(summary_dfs, ignore_index=True)
             test_results = pd.DataFrame(test_records)
             spurious_composition = pd.concat(spurious_dfs, ignore_index=True) if spurious_dfs else pd.DataFrame()
@@ -308,6 +334,7 @@ class BatchEvaluator:
 
             result = BatchEvaluationResult(
                 input_df=input_df,
+                reference_leaves=reference_leaves,
                 test_results=test_results,
                 summary_results=summary_results,
                 spurious_composition=spurious_composition,
@@ -327,8 +354,7 @@ class BatchEvaluator:
             )
 
             logger.info(
-                f"Aggregated results from {len(results)} datasets "
-                f"({len(errors)} failed, {len(skipped)} skipped)"
+                f"Aggregated results from {len(results)} datasets ({len(errors)} failed, {len(skipped)} skipped)"
             )
             return result
 

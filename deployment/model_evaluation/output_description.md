@@ -35,6 +35,7 @@ All outputs are written under `{analysis_output_filepath}` (set via `--analysis_
 ├── evaluation_results_agent.json
 ├── pipeline_metadata.tsv
 ├── test_datasets_input_df.tsv
+├── test_datasets_reference_leaves.tsv
 ├── test_datasets_overall_precision.tsv
 ├── test_datasets_summary_results.tsv
 ├── test_datasets_spurious_composition.tsv
@@ -310,6 +311,23 @@ Notes:
   `recall_baseline_cov_filtered`. Values regenerated with the current code are therefore not
   comparable to older summary files without recomputation.
 
+#### Known issue — `max_taxids_fixed_filter` is not wired up
+
+`recall_fixed_max_12` and `found_in_fixed_filter` come from a **hard-coded** limit of 12.
+The `--max_taxids_fixed_filter` CLI flag and `EvaluatorConfig.max_taxids_fixed_filter`
+(default 15) are accepted but never read: `DatasetProcessor._apply_fixed_filter` is called
+with a literal `12`.
+
+Two further caveats about what the limit actually means:
+
+- The value truncates **assembly/leaf rows**, not unique taxids, and it is applied twice
+  (`OverlapManager(max_taxids=...)` and an explicit `head(max_taxids)`), so the effective
+  row count depends on how many leaves the top assemblies contribute.
+- Recall after it is therefore comparable across datasets only in the sense that every
+  dataset used the same constant.
+
+Behaviour is left unchanged pending a decision on how the flag should be defined.
+
 ### Recall-gap diagnostic — `analysis_scripts/diagnose_recall_gap.py`
 
 File-based diagnostic (no lineage lookups, no network) that assigns every
@@ -336,7 +354,139 @@ Usage: `python -m deployment.model_evaluation.analysis_scripts.diagnose_recall_g
 
 ### `test_datasets_input_df.tsv`
 
-Merged input summary for all test datasets. Columns: `sample`, `taxid`, `reads`, `mutation_rate`, `order`, `family`, `genus`, `data_set`, `found_in_recall_filter`, `found_in_fixed_filter`.
+One row per `(data_set, input taxid)` — the wide per-reference table. It answers
+*where did this reference go?* and is the input to `test_datasets_reference_leaves.tsv`'s
+funnel.
+
+The first 12 columns are the historical schema, unchanged and in their original
+order, so existing readers that select by name or by leading position keep working:
+
+| # | Column | Meaning |
+|---|---|---|
+| 1 | `sample` | Simulated sample name |
+| 2 | `taxid` | Input reference taxid (join key) |
+| 3 | `reads` | Reads simulated for this reference |
+| 4 | `mutation_rate` | Simulated mutation rate |
+| 5–7 | `order`, `family`, `genus` | Resolved taxonomy |
+| 8 | `match_index` | Best-matching assembly accession |
+| 9 | `match_coverage` | Coverage of that assembly |
+| 10 | `found_in_recall_filter` | Survived the recall filter |
+| 11 | `found_in_fixed_filter` | Survived the fixed-`max_taxids` filter |
+| 12 | `data_set` | Dataset name |
+
+Everything after column 12 is new tracking detail, in the order given by
+`reference_details.REFERENCE_DETAIL_COLUMNS`:
+
+| Group | Columns |
+|---|---|
+| Classifier evidence | `in_classification`, `classifier_reads_available`, `classifier_uniq_reads`, `classifier_names`, `has_coverage_row` |
+| Best-match leaf | `best_accession`, `best_leaf`, `leaf_rank`, `numreads`, `total_uniq_reads`, `covbases`, `meanmapq`, `error_rate`, `best_match_score`, `best_match_level`, `max_coverage`, `max_shared` |
+| Leaf aggregates | `n_leaves`, `n_clean_matches`, `n_covered_leaves`, `is_trash_best` |
+| Clade membership | `found_in_clade_{pre,post,fixed}`, `clade_{pre,post,fixed}_node`, `clade_{pre,post,fixed}_precision`, `clade_{pre,post,fixed}_n_nodes` |
+| Attribution | `loss_stage`, then the independent `recalled_*` / `lost_*` / `survived_post_cleanup` flags |
+
+Notes:
+- Everything keys on `m_stats["best_match_taxid"]` — the reference a leaf was matched to —
+  which is what `metrics.compute_recall` and `compute_clade_recall` use.
+  `output/matched_assemblies.tsv` is **not** the join key: its `taxid` column holds the
+  *matched assembly's* taxid, not the input reference's.
+- `n_clean_matches` mirrors the recall criterion exactly (≥1 leaf with
+  `is_trash == False and best_match_is_best == True`), so
+  `n_clean_matches > 0` reproduces `compute_recall`'s recalled-taxid set.
+- `classifier_uniq_reads` is **empty**, not `0`, when the classification table has no
+  read-count column (older raw-virus studies), so "no count available" is distinguishable
+  from "zero reads". `classifier_reads_available` is `False` in exactly that case, because
+  `analysis_data_extractor.load_classifier_detected_taxids()` drops its `uniq_reads > 0`
+  filter when the column is absent and therefore credits every listed taxid.
+  `loss_stage` follows the helper rather than assuming a zero count.
+- `clade_*_n_nodes` can exceed 1: a reference whose leaves land in more than one predicted
+  clade is reported in each, with `clade_*_node` / `clade_*_precision` describing the
+  best-matched leaf's clade.
+- Building these tables is best-effort. If it fails, a warning is logged and the row is
+  emitted without the new columns; metrics are unaffected.
+
+#### `loss_stage`
+
+An ordered, **first-match** cascade in pipeline order. Each reference lands in exactly
+one bucket, so the buckets sum to the input count and form a proper funnel. The names
+`absent_classification`, `classified_no_assembly`, `assembly_no_coverage` and
+`assembly_zero_reads` are kept identical to `analysis_scripts/diagnose_recall_gap.py`.
+
+`loss_stage` uses the **same** detection criterion as the headline `recall_baseline`
+(classification-aware recall): a reference is recalled if it has a clean assembly match
+(`n_clean_matches > 0`) **or** the classifier called it. Consequently only
+`absent_classification` and `classified_no_assembly` are actual recall losses, and the
+table satisfies
+
+```python
+recalled_classification_aware == loss_stage not in ("absent_classification", "classified_no_assembly")
+```
+
+The remaining buckets describe how far an already-recalled reference got.
+
+| `loss_stage` | Recall loss? | Meaning |
+|---|---|---|
+| `absent_classification` | yes | taxid is in neither source: absent from `<ds>_merged_classification.tsv` and without a clean leaf |
+| `survived_classifier_only` | no | classifier called it (`classifier_uniq_reads > 0`, or listed when no read count exists) but no clean assembly leaf matched |
+| `classified_no_assembly` | yes | listed by the classifier with no usable read count, and no clean assembly leaf matched |
+| `assembly_no_coverage` | no | clean leaf matched but has no row in `merged_coverage_statistics.tsv` |
+| `assembly_zero_reads` | no | coverage row exists but `numreads == 0` |
+| `lost_recall_truncation` | no | best leaf's rank fell outside the recall filter's `keep_index` |
+| `lost_clade_prediction` | no | not present in any post-cleanup predicted clade |
+| `survived_post_cleanup` | no | present in a post-cleanup predicted clade |
+
+`no_best_match` and `best_match_trash` were removed from the cascade because neither can
+ever win it: a reference with leaves always has a best match, and once a clean match
+exists the best leaf is by definition not trash. Both are still reported, via the
+`lost_no_best_match` / `lost_best_match_trash` flags and the `n_clean_matches` /
+`is_trash_best` columns.
+
+#### Recall and independent loss flags
+
+`recalled_classification_aware`, `recalled_assembly` and `recalled_classifier_only`
+decompose the recall set; `recalled_classification_aware` is
+`recalled_assembly or recalled_classifier_only`. `recalled_classifier_only` is also the
+`survived_classifier_only` stage.
+
+`lost_before_classification`, `lost_assembly_lookup`, `lost_no_coverage`,
+`lost_zero_reads`, `lost_no_best_match`, `lost_best_match_trash`,
+`lost_recall_truncation`, `lost_clade_prediction`, `survived_post_cleanup` are **not** a
+second copy of `loss_stage`. A reference that fails several conditions at once reports
+every applicable flag, so the flags can be used to verify the cascade rather than being a
+copy of it. Note `lost_assembly_lookup` means "no *clean* assembly match", which is
+independent of recall — a classifier-credited reference with only trash leaves is
+`lost_assembly_lookup` yet still recalled.
+
+### `test_datasets_reference_leaves.tsv`
+
+One row per `(data_set, input taxid, matched assembly)` — the long per-leaf table that
+explains *why* a reference aggregated to the `loss_stage` above.
+
+Key columns:
+
+| Column | Meaning |
+|---|---|
+| `data_set` | Dataset name |
+| `taxid` | The **input reference** this leaf was matched to (join key to `test_datasets_input_df.tsv`) |
+| `assembly_taxid` | The matched assembly's own taxid (m_stats' own `taxid` column) |
+| `assembly_accession` | Matched assembly accession |
+| `leaf` | Alignment leaf file |
+| `leaf_rank` | Position in the `total_uniq_reads`-descending order the filters truncate on |
+| `is_trash`, `max_shared` | Per-leaf match flags |
+| `coverage`, `covbases`, `numreads`, `meanmapq`, `error_rate` | Mapping statistics |
+| `is_input_taxid` | `False` for leaves whose best match is outside the input set |
+| `survives_recall_filter`, `survives_fixed_filter` | Rank **and** coverage survival, matching `_apply_recall_filter` / `_apply_fixed_filter` |
+| `in_clade_pre`, `in_clade_post`, `in_clade_fixed` | Leaf present in a predicted clade at that stage |
+
+Notes:
+- `taxid` is the input taxid, not the assembly's; the assembly's taxid is kept separately
+  as `assembly_taxid` because m_stats already carries a `taxid` column of its own.
+- Leaves whose best match is outside the input set are dropped, except for leaves with no
+  best match at all, which are retained with an empty `taxid` and `is_input_taxid = False`.
+- `survives_*_filter` is `False` only when the corresponding filter ran and dropped the
+  leaf. With `--no-apply-recall-filter` the rank cutoff is inactive and only the coverage
+  condition applies — a disabled filter never reports a leaf as lost.
+- The file always carries its header, even when a run produced no leaves.
 
 ### `test_datasets_overall_precision.tsv`
 
@@ -643,6 +793,8 @@ analysis_output/                   (output)
 ├── cross_hit_metrics_*.tsv       training analysis
 ├── spurious_hit_metrics_*.tsv    training analysis
 ├── test_datasets_*.tsv           evaluation results
+│   ├── test_datasets_input_df.tsv         per-reference tracking + loss funnel
+│   └── test_datasets_reference_leaves.tsv per-leaf tracking
 ├── evaluation_results.json       aggregated results
 ├── *.png                         all plots
 └── evaluation_report.html        HTML report
