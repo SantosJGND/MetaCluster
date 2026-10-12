@@ -13,17 +13,19 @@ YELLOW='\033[1;33m'
 NC='\033[0m'
 
 usage() {
-    echo "Usage: $0 <simulation|classification|full_pipeline> [params_file]"
+    echo "Usage: $0 <simulation|classification|mapping|full_pipeline> [params_file]"
     echo ""
     echo "Arguments:"
     echo "  simulation     - Validate only simulation parameters"
     echo "  classification - Validate only classification parameters"
+    echo "  mapping        - Validate only reference-truth mapping parameters"
     echo "  full_pipeline  - Validate all parameters"
     echo "  params_file    - Optional: path to params file (default: test_run/params_test.json)"
     echo ""
     echo "Examples:"
     echo "  $0 simulation"
     echo "  $0 classification test_run/params_local.json"
+    echo "  $0 mapping deployment/mapping/params.json"
     echo "  $0 full_pipeline"
 }
 
@@ -125,6 +127,26 @@ validate_classification() {
     return $failed
 }
 
+validate_mapping() {
+    echo ""
+    echo "=== Validating Reference-Truth Mapping Parameters ==="
+    local failed=0
+    
+    check_param "input_table" || failed=1
+    check_param "reads" || failed=1
+    check_param "output_dir" || failed=1
+    check_param "assembly_store" || failed=1
+    check_param "python_bin" || failed=1
+    check_param "references_extract_script" || failed=1
+    check_param "minimap2_illumina_params" || failed=1
+    check_param "msamtools_params" || failed=1
+    check_conda_env "minimap2_conda_env" || failed=1
+    check_conda_env "msamtools_conda_env" || failed=1
+    check_conda_env "mosdepth_conda_env" || failed=1
+    
+    return $failed
+}
+
 validate_full_pipeline() {
     echo ""
     echo "=== Validating Full Pipeline Parameters ==="
@@ -142,6 +164,9 @@ case $WORKFLOW_TYPE in
         ;;
     classification)
         validate_classification
+        ;;
+    mapping)
+        validate_mapping
         ;;
     full_pipeline)
         validate_full_pipeline

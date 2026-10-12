@@ -61,6 +61,8 @@ for TABLE in $(ls $TABLES_DIR); do
     --input_table "$TABLE_FILE" \
     --output_dir "$OUTPUT_DIR" \
     --analysis_id "$ANALYSIS_ID" \
+    -c "$NEXTFLOW_CONFIG" \
+    -w single-work \
     -ansi-log false
     
     nextflow run $DEPLOYMENT_HOME/classify/classify.nf \
@@ -69,11 +71,13 @@ for TABLE in $(ls $TABLES_DIR); do
     --reads "$READS_DIR" \
     --output_dir "$OUTPUT_DIR" \
     --analysis_id "$ANALYSIS_ID" \
+    -c "$NEXTFLOW_CONFIG" \
+    -w single-work \
     -ansi-log false
     
     if [ $? -ne 0 ]; then
         echo "Nextflow run failed for $table"
     fi
-    rm -rf work
+    rm -rf single-work
     rm -rf .nextflow*
 done

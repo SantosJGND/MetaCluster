@@ -1,0 +1,20 @@
+{
+    "input_table": "",
+    "reads": "",
+    "output_dir": "output",
+    "analysis_id": "",
+
+    "python_bin": ".venv/bin/python3",
+    "references_extract_script": "reference_management/main.py",
+    "assembly_store": "assembly_store",
+
+    "minimap2_illumina_params": "-ax sr --secondary=no",
+    "minimap2_conda_env": "mapping",
+
+    "msamtools_params": "-l 80 -p 95 -z 80",
+    "msamtools_conda_env": "msamtools",
+
+    "mosdepth_conda_env": "mosdepth",
+
+    "mapping_stats_script": "deployment/mapping/mapping_statistics.py"
+}
