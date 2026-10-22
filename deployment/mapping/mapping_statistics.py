@@ -29,7 +29,7 @@ import numpy as np
 import pandas as pd
 
 TAXID_CANDIDATES = ("taxid", "TaxID", "taxID", "taxon")
-READS_CANDIDATES = ("reads", "num_reads", "read_count", "n_reads", "numreads")
+READS_CANDIDATES = ("reads", "num_reads", "read_count", "n_reads", "numreads", "uniq_reads")
 
 
 def get_args():
