@@ -251,8 +251,6 @@ process MappingStatistics {
     script:
     def stats_script = params.mapping_stats_script ?: "${projectDir}/mapping_statistics.py"
     """
-    cp ${matched_assemblies} matched_assemblies.tsv
-    cp ${coverage_statistics} merged_coverage_statistics.tsv
     ${params.python_bin} ${stats_script} \
         --input-table ${input_table} \
         --matched-assemblies matched_assemblies.tsv \
