@@ -108,17 +108,56 @@ MANIFEST="$OUTPUT_DIR/esviritu_sim_manifest.tsv"
 discover_datasets(){
 DATASETS=()
 local -a found=()
-if [[ -n $DATASETS_ARG ]]; then IFS=',' read -r -a found <<<"$DATASETS_ARG"; elif [[ -n $DATASETS_FILE ]]; then [[ -f $DATASETS_FILE ]] || die "no file"; mapfile -t found < <(grep -v '^[[:space:]]*$' "$DATASETS_FILE"|tr -d ' \r'); else while IFS= read -r f; do local dir; dir="$(dirname "$(dirname "$f")")"; local dname; dname="$(basename "$dir")"; [[ "$dname" == $DATASET_GLOB ]] && found+=("$dname"); done < <(find "$SIM_ROOT" -type f \( -name "*_R1.fq.gz" -o -name "*_1.fq.gz" \) 2>/dev/null); fi
-local -A seen=(); local d; for d in "${found[@]}"; do [[ -n $d ]]||continue; [[ -n ${seen[$d]:-} ]]&&continue; seen[$d]=1; DATASETS+=("$d"); done
-((${#DATASETS[@]}))||die "no datasets"
+if [[ -n $DATASETS_ARG ]]; then
+  IFS=',' read -r -a found <<<"$DATASETS_ARG"
+elif [[ -n $DATASETS_FILE ]]; then
+  [[ -f $DATASETS_FILE ]] || die "datasets file not found"
+  mapfile -t found < <(grep -v '^[[:space:]]*$' "$DATASETS_FILE" | tr -d ' \r')
+else
+  # try fastq dirs first
+  while IFS= read -r fdir; do
+    [[ -z $fdir ]] && continue
+    local ddir; ddir="$(dirname "$fdir")"
+    local dname; dname="$(basename "$ddir")"
+    [[ "$dname" == $DATASET_GLOB || $DATASET_GLOB == "*" ]] && found+=("$dname")
+  done < <(find "$SIM_ROOT" -type d -name fastq 2>/dev/null | head -50000)
+  if ((${#found[@]} == 0)); then
+    while IFS= read -r f; do
+      [[ -z $f ]] && continue
+      local fdir2; fdir2="$(dirname "$f")"
+      local ddir2; ddir2="$(dirname "$fdir2")"
+      local dname2; dname2="$(basename "$ddir2")"
+      [[ "$dname2" == $DATASET_GLOB || $DATASET_GLOB == "*" ]] && found+=("$dname2")
+    done < <(find "$SIM_ROOT" -type f \( -name "*_R1.fq.gz" -o -name "*_1.fq.gz" \) 2>/dev/null | head -50000)
+  fi
+fi
+local -A seen=()
+local d
+for d in "${found[@]}"; do
+  [[ -n $d ]] || continue
+  [[ -n ${seen[$d]:-} ]] && continue
+  seen[$d]=1
+  DATASETS+=("$d")
+done
+((${#DATASETS[@]})) || die "no datasets discovered under $SIM_ROOT"
 }
 READ_FILES=(); READ_FMT=""; READ_NOTE=""
 resolve_sim_reads(){
-local id=$1 dir="$SIM_ROOT/$id/fastq"; READ_FILES=(); READ_FMT=""; READ_NOTE=""; [[ -d $dir ]]||{ READ_NOTE="no dir"; return 1; }
+local id=$1 dir="$SIM_ROOT/$id/fastq"; READ_FILES=(); READ_FMT=""; READ_NOTE=""
+[[ -d $dir ]] || { READ_NOTE="no $dir"; return 1; }
 local r1="" r2=""
 if [[ -f "$dir/${id}_R1.fq.gz" && -f "$dir/${id}_R2.fq.gz" ]]; then r1="$dir/${id}_R1.fq.gz"; r2="$dir/${id}_R2.fq.gz"
 elif [[ -f "$dir/${id}_1.fq.gz" && -f "$dir/${id}_2.fq.gz" ]]; then r1="$dir/${id}_1.fq.gz"; r2="$dir/${id}_2.fq.gz"
-else local -a files=(); while IFS= read -r f; do [[ -n $f ]]&&files+=("$f"); done < <(find "$dir" -maxdepth 1 -type f \( -name "*R1*.fq.gz" -o -name "*_1.fq.gz" \)|sort); ((${#files[@]}>=1))&&r1="${files[0]}"; if [[ -n $r1 ]]; then local base; base="$(basename "$r1")"; [[ $base == *R1* ]]&&r2="${r1/R1/R2}"; [[ $base == *_1* ]]&&r2="${r1/_1./_2.}"; fi; fi
+else
+  local -a files=()
+  while IFS= read -r f; do [[ -n $f ]] && files+=("$f"); done < <(find "$dir" -maxdepth 1 -type f \( -name "*R1*.fq.gz" -o -name "*_1.fq.gz" \) | sort)
+  ((${#files[@]}>=1)) && r1="${files[0]}"
+  if [[ -n $r1 ]]; then
+    local base; base="$(basename "$r1")"
+    if [[ $base == *R1* ]]; then r2="${r1/R1/R2}"; fi
+    if [[ -z $r2 && $base == *_1* ]]; then r2="${r1/_1./_2.}"; fi
+  fi
+fi
 if [[ -n $r1 && -n $r2 && -f $r1 && -f $r2 ]]; then READ_FILES=("$r1" "$r2"); READ_FMT="paired"; return 0; fi
 READ_NOTE="no paired"; return 1
 }

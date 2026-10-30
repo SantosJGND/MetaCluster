@@ -31,19 +31,19 @@ def main():
 
     if args.type == "centrifuge":
         centrifuge_processor = CentrifugeOutputProcessor(args.input, nuniq_threshold=args.nuniq_threshold)
-        centrifuge_processor.from_file(args.input).process().prep_final_report().save(args.output_path)
+        centrifuge_processor.from_file(args.input, nuniq_threshold = args.nuniq_threshold).process().prep_final_report().save(args.output_path)
 
     if args.type == "kraken2":
         kraken_processor = KrakenOutputProcessor(args.input, min_uniq_reads=args.nuniq_threshold)
-        kraken_processor.from_file(args.input).process().prep_final_report().save(args.output_path)
+        kraken_processor.from_file(args.input, min_uniq_reads=args.nuniq_threshold).process().prep_final_report().save(args.output_path)
 
     if args.type == "diamond":
         diamond_processor = DiamondOutputProcessor(args.input, min_uniq_reads=args.nuniq_threshold)
-        diamond_processor.from_file(args.input).process().prep_final_report().save(args.output_path)
+        diamond_processor.from_file(args.input, min_uniq_reads=args.nuniq_threshold).process().prep_final_report().save(args.output_path)
 
     if args.type == "kuniq":
         kuniq_processor = KrakenUniqOutputProcessor(args.input, min_uniq_reads=args.nuniq_threshold)
-        kuniq_processor.from_file(args.input).process().prep_final_report().save(args.output_path)
+        kuniq_processor.from_file(args.input, min_uniq_reads=args.nuniq_threshold).process().prep_final_report().save(args.output_path)
 
 
 if __name__ == "__main__":

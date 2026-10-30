@@ -103,7 +103,7 @@ class ClassifierOutputProcessor(ABC):
         self.final_report: pd.DataFrame = pd.DataFrame(columns=["description", "taxID", "software_name"])
 
     @classmethod
-    def from_file(cls, output_path: str) -> ClassifierOutputProcessor:
+    def from_file(cls, output_path: str, nuniq_threshold= 1) -> ClassifierOutputProcessor:
         """
         Factory method to create processor from file.
 
@@ -159,15 +159,15 @@ class ClassifierOutputProcessor(ABC):
 class KrakenUniqOutputProcessor(ClassifierOutputProcessor):
     """Processor for KrakenUnique output files."""
 
-    def __init__(self, output_path: str, min_uniq_reads: int = 10) -> None:
+    def __init__(self, output_path: str, min_uniq_reads: int = 1) -> None:
         super().__init__(output_path)
         self.min_uniq_reads = min_uniq_reads
         self.software_name = "KrakenUniq"
 
     @classmethod
-    def from_file(cls, output_path: str) -> KrakenUniqOutputProcessor:
+    def from_file(cls, output_path: str, min_uniq_reads = 1) -> KrakenUniqOutputProcessor:
         """Load KrakenUnique report from file."""
-        processor = cls(output_path)
+        processor = cls(output_path, min_uniq_reads=min_uniq_reads)
         try:
             report = pd.read_csv(output_path, sep="\t")
             report.columns = ["status", "sequence_id", "taxID", "query_length", "map_length"]
@@ -196,9 +196,9 @@ class DiamondOutputProcessor(ClassifierOutputProcessor):
         self.software_name = "Diamond"
 
     @classmethod
-    def from_file(cls, output_path: str) -> DiamondOutputProcessor:
+    def from_file(cls, output_path: str, min_uniq_reads= 5) -> DiamondOutputProcessor:
         """Load Diamond report from file."""
-        processor = cls(output_path)
+        processor = cls(output_path, min_uniq_reads=min_uniq_reads)
         try:
             report = pd.read_csv(output_path, sep="\t", header=None)
             report.columns = [
@@ -255,9 +255,9 @@ class CentrifugeOutputProcessor(ClassifierOutputProcessor):
         self.software_name = "Centrifuge"
 
     @classmethod
-    def from_file(cls, output_path: str) -> CentrifugeOutputProcessor:
+    def from_file(cls, output_path: str, nuniq_threshold= 1) -> CentrifugeOutputProcessor:
         """Load Centrifuge report from file."""
-        processor = cls(output_path)
+        processor = cls(output_path, nuniq_threshold=nuniq_threshold)
         try:
             processor.report = pd.read_csv(output_path, sep="\t")
         except (pd.errors.EmptyDataError, FileNotFoundError):
@@ -292,9 +292,9 @@ class KrakenOutputProcessor(ClassifierOutputProcessor):
         self.software_name = "Kraken2"
 
     @classmethod
-    def from_file(cls, output_path: str) -> KrakenOutputProcessor:
+    def from_file(cls, output_path: str, min_uniq_reads= 1) -> KrakenOutputProcessor:
         """Load Kraken2 report from file."""
-        processor = cls(output_path)
+        processor = cls(output_path, min_uniq_reads=min_uniq_reads)
         try:
             kraken_report = pd.read_csv(output_path, sep="\t", header=None)
             kraken_report.columns = ["PercReads", "NumReadsRoot", "Nreads", "RankCode", "taxID", "name"]

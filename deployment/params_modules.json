@@ -48,5 +48,5 @@
     "wgsim_python_path": "simulate/main.py",
     "wgsim_args": "-e 0.02 -1 150 -2 150 -r 0.02 -R 0.05 -S 100",
 
-    "minimum_uniq_reads": 5
+    "minimum_uniq_reads": 1
 }
