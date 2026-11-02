@@ -136,7 +136,7 @@ process MapBWAPaired {
     script:
     """
     bwa mem -t ${task.cpus} ${params.bwa_params} ${reference} ${fastq1} ${fastq2} | \
-        samtools view -bS -F 4 - > ${query_id}_${reference.baseName}.bam
+        samtools view -bS -F 4 > ${query_id}_${reference.baseName}.bam
     """
 }
 
