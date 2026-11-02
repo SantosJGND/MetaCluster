@@ -10,6 +10,7 @@
 
     "minimap2_illumina_params": "-ax sr --secondary=no",
     "minimap2_conda_env": "mapping",
+    "bwa_params": "",
 
     "msamtools_params": "-l 80 -p 95 -z 80",
     "msamtools_conda_env": "msamtools",

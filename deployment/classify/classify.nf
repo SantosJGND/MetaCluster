@@ -17,6 +17,7 @@ params.krakenunique = params.krakenunique ?: false
 params.min_uniq_reads = params.min_uniq_reads ?: 1
 params.fail_on_missing_assemblies = params.fail_on_missing_assemblies ?: true
 params.max_missing_references_pct = params.max_missing_references_pct ?: 5
+params.bwa_params = params.bwa_params ?: ""
 
 workflow {
 
@@ -467,9 +468,18 @@ process MapBWAPaired {
     tuple path("${query_id}_${reference.baseName}.bam"), val(query_id), val(reference.baseName)
 
     script:
+    def ref_name = reference.name
+    def ref_fa = ref_name.endsWith('.gz') ? ref_name.substring(0, ref_name.length() - 3) : ref_name
     """
-    bwa mem -t ${task.cpus} ${params.bwa_params} ${reference} ${fastq1} ${fastq2} | \
-        samtools view -bS -F 4 - > ${query_id}_${reference.baseName}.bam
+    set -o pipefail
+    if [ "${ref_name}" != "${ref_fa}" ]; then
+        gzip -dc "${ref_name}" > "${ref_fa}"
+    fi
+    if [ ! -f "${ref_fa}.bwt" ]; then
+        bwa index "${ref_fa}"
+    fi
+    bwa mem -t ${task.cpus} ${params.bwa_params ?: ''} "${ref_fa}" "${fastq1}" "${fastq2}" | \
+        samtools view -bS -F 4 - > "${query_id}_${reference.baseName}.bam"
     """
 }
 
