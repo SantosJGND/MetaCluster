@@ -2,6 +2,7 @@
 import json
 import logging
 import os
+import re
 import subprocess
 import time
 from collections.abc import Generator
@@ -341,6 +342,74 @@ def compare_lineages(lineage1: str | None, lineage2: str | None) -> tuple[float,
     return score / min_length, level
 
 
+def normalize_accession(value: str | None) -> tuple[str | None, str]:
+    """Return the bare accession and its Entrez database for an EsViritu identifier.
+
+    EsViritu ``Assembly`` values may be prefixed with ``acc:`` / ``set:`` for
+    custom database entries; RefSeq assembly accessions (``GCF_`` / ``GCA_``)
+    live in the assembly database, everything else in nucleotide.
+    """
+    if value is None:
+        return None, "nucleotide"
+    accession = str(value).strip().strip('"').strip("'")
+    for prefix in ("acc:", "set:"):
+        if accession.lower().startswith(prefix):
+            accession = accession[len(prefix) :].strip()
+            break
+    if not accession:
+        return None, "nucleotide"
+    db = "assembly" if re.match(r"^GC[AF]_\d+(?:\.\d+)?$", accession, re.IGNORECASE) else "nucleotide"
+    return accession, db
+
+
+@retry_with_backoff(max_retries=3, initial_delay=1)
+def retrieve_taxid_from_accession(accession: str, db: str | None = None) -> int | None:
+    """Resolve an NCBI nucleotide or assembly accession to its taxonomy id."""
+    accession, inferred_db = normalize_accession(accession)
+    if accession is None:
+        return None
+    db = "assembly" if inferred_db == "assembly" else (db or "nucleotide")
+    if db not in {"nucleotide", "assembly"}:
+        raise ValueError(f"Unsupported Entrez database: {db}")
+
+    term = f"{accession}[Accession]" if db == "nucleotide" else f"{accession}[Assembly Accession]"
+    handle = Entrez.esearch(db=db, term=term, retmax=1)
+    record = Entrez.read(handle)
+    handle.close()
+    ids = record.get("IdList") or []
+    if not ids:
+        return None
+    uid = ids[0]
+
+    try:
+        handle = Entrez.elink(dbfrom=db, db="taxonomy", id=uid)
+        links = Entrez.read(handle)
+        handle.close()
+        for linkset in links:
+            for linkdb in linkset.get("LinkSetDb", []):
+                linked = linkdb.get("Link") or []
+                if linked:
+                    return int(linked[0]["Id"])
+    except Exception:
+        pass
+
+    try:
+        handle = Entrez.esummary(db=db, id=uid, report="full")
+        summary = Entrez.read(handle)
+        handle.close()
+        if db == "assembly":
+            docsum = summary["DocumentSummarySet"]["DocumentSummary"][0]
+            taxid = docsum.get("Taxid") or docsum.get("SpeciesTaxid")
+        else:
+            taxid = summary[0].get("TaxId")
+        if taxid:
+            return int(taxid)
+    except Exception:
+        pass
+
+    return None
+
+
 @dataclass
 class Passport:
     taxid: str | None
@@ -571,6 +640,13 @@ class NCBITools:
         ch.setFormatter(formatter)
         self.logger.addHandler(ch)
         self.logger.propagate = False
+
+    def retrieve_taxid_from_accession(self, accession: str, db: str | None = None) -> int | None:
+        """Resolve an accession to a taxid, logging when it cannot be resolved."""
+        taxid = retrieve_taxid_from_accession(accession, db)
+        if taxid is None:
+            self.logger.warning(f"Could not resolve accession {accession!r} to a taxid")
+        return taxid
 
     @retry_with_backoff(max_retries=3, initial_delay=1)
     def retrieve_passport_taxonomy(self, passport: Passport) -> str | None:

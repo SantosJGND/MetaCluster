@@ -59,7 +59,7 @@ workflow {
 
     combined_ch = reads_ch.combine(flattened_reference_sequences_ch)
 
-    mapped_reads_ch = MapMinimap2Paired(analysis_id, combined_ch)
+    mapped_reads_ch = MapBWAPaired(analysis_id, combined_ch)
     filtered_alignments_ch = FilterBamMsamtools(mapped_reads_ch)
     sorted_reads_ch = sortBam(filtered_alignments_ch)
     coverage_ch = SamtoolsCoverage(sorted_reads_ch)
@@ -119,6 +119,23 @@ process MapMinimap2Paired {
     script:
     """
     minimap2 -t ${task.cpus} ${params.minimap2_illumina_params} -a ${reference} ${fastq1} ${fastq2} | \
+        samtools view -bS -F 4 - > ${query_id}_${reference.baseName}.bam
+    """
+}
+
+process MapBWAPaired {
+    tag "MapBWAPaired ${query_id}"
+
+    input:
+    val query_id
+    tuple path(fastq1), path(fastq2), path(reference)
+
+    output:
+    tuple path("${query_id}_${reference.baseName}.bam"), val(query_id), val(reference.baseName)
+
+    script:
+    """
+    bwa mem -t ${task.cpus} ${params.bwa_params} ${reference} ${fastq1} ${fastq2} | \
         samtools view -bS -F 4 - > ${query_id}_${reference.baseName}.bam
     """
 }

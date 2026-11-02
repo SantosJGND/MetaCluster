@@ -119,7 +119,7 @@ workflow {
 
     combined_ch = reads_ch.combine(flattened_reference_sequences_ch)
 
-    mapped_reads_ch = MapMinimap2Paired(analysis_id, combined_ch)
+    mapped_reads_ch = MapBWAPaired(analysis_id, combined_ch)
 
     filtered_alignments_ch = FilterBamMsamtools(mapped_reads_ch)
     sorted_reads_ch = sortBam(filtered_alignments_ch)
@@ -146,8 +146,8 @@ workflow {
 
 
 /*
-* Add software column to classifier output to track source
-*/
+ * Add software column to classifier output to track source
+ */
 process AddSoftwareColumn {
     tag "AddSoftwareColumn ${analysis_id}_${software}"
 
@@ -172,8 +172,8 @@ process AddSoftwareColumn {
 
 
 /*
-* Check reads_ch, if tuple contains only one file, append a placeholder NO_FILE for the second file
-*/
+ * Check reads_ch, if tuple contains only one file, append a placeholder NO_FILE for the second file
+ */
 process CheckReads {
     input:
     tuple path(fastq1), path(fastq2)
@@ -192,8 +192,8 @@ process CheckReads {
 
 
 /*
-* Quality control of the reads using prinseq++ (single-end)
-*/
+ * Quality control of the reads using prinseq++ (single-end)
+ */
 process QCReadsPrinseqSingle {
     tag "QCReadsPrinseqSingle ${analysis_id}"
 
@@ -214,8 +214,8 @@ process QCReadsPrinseqSingle {
 
 
 /*
-* merge coverage statistics from different BAM files
-*/
+ * merge coverage statistics from different BAM files
+ */
 process MergeCoverageStatistics {
     tag "MergeCoverageStatistics ${query_id}"
 
@@ -256,8 +256,8 @@ process MergeCoverageStatistics {
 
 
 /*
-* Get coverage statistics using samtools
-*/
+ * Get coverage statistics using samtools
+ */
 process SamtoolsStats {
     tag "SamtoolsStats ${bamfile.baseName}"
 
@@ -275,8 +275,8 @@ process SamtoolsStats {
 
 
 /*
-* Use samtools to extract BAM file coverage statistics
-*/
+ * Use samtools to extract BAM file coverage statistics
+ */
 process SamtoolsCoverage {
 
     tag "SamtoolsCoverage ${bamfile.baseName}"
@@ -296,8 +296,8 @@ process SamtoolsCoverage {
 
 
 /*
-* sort and index bam file, maintain tuple file, query_id, reference_id in channel
-*/
+ * sort and index bam file, maintain tuple file, query_id, reference_id in channel
+ */
 process sortBam {
     tag "sortMapping"
 
@@ -318,8 +318,8 @@ process sortBam {
 
 
 /*
-* Filter BAM files
-*/
+ * Filter BAM files
+ */
 process FilterBamMsamtools {
     tag "FilterBamMsamtools ${bamfile.baseName}"
 
@@ -339,8 +339,8 @@ process FilterBamMsamtools {
 
 
 /*
-* Merge mapping statistics
-*/
+ * Merge mapping statistics
+ */
 process MergeMappingStatistics {
     tag "MergeMappingStatistics ${query_id}"
 
@@ -371,8 +371,8 @@ process MergeMappingStatistics {
 
 
 /*
-* Extract mapping statistics
-*/
+ * Extract mapping statistics
+ */
 process ExtractMappingStatistics {
     tag "ExtractMappingStatistics ${bamfile.baseName}"
 
@@ -408,8 +408,8 @@ process ExtractMappingStatistics {
 
 
 /*
-* Cluster mapped reads
-*/
+ * Cluster mapped reads
+ */
 process ClusterMappedReads {
     tag "ClusterMappedReads ${analysis_id}"
     publishDir { "${params.output_dir}/${analysis_id}" }, mode: 'copy'
@@ -437,8 +437,8 @@ process ClusterMappedReads {
 
 
 /*
-* Map reads to references using minimap2
-*/
+ * Map reads to references using minimap2
+ */
 process MapMinimap2Paired {
     tag "MapMinimap2Paired ${query_id}"
 
@@ -456,10 +456,27 @@ process MapMinimap2Paired {
     """
 }
 
+process MapBWAPaired {
+    tag "MapBWA ${query_id}"
+
+    input:
+    val query_id
+    tuple path(fastq1), path(fastq2), path(reference)
+
+    output:
+    tuple path("${query_id}_${reference.baseName}.bam"), val(query_id), val(reference.baseName)
+
+    script:
+    """
+    bwa mem -t ${task.cpus} ${params.bwa_params} ${reference} ${fastq1} ${fastq2} | \
+        samtools view -bS -F 4 - > ${query_id}_${reference.baseName}.bam
+    """
+}
+
 
 /*
-* Extract reference sequences from classification results
-*/
+ * Extract reference sequences from classification results
+ */
 process ExtractReferenceSequences {
     tag "ExtractReferenceSequences ${analysis_id}"
 
