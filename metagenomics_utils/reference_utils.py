@@ -1,12 +1,19 @@
 import logging
 import os
 import re
+import shutil
 import time
 
 import pandas as pd
 
 from metagenomics_utils.dataframe_utils import detect_id_columns, rename_columns_to_standard
-from metagenomics_utils.ncbi_tools import LocalAssembly, NCBITools, Passport, ReferenceData
+from metagenomics_utils.ncbi_tools import (
+    LocalAssembly,
+    NCBITools,
+    Passport,
+    ReferenceData,
+    is_valid_sequence_file,
+)
 
 
 class RateLimiter:
@@ -69,6 +76,12 @@ class AssemblyStore:
     def get_assembly_path(self, taxid: str) -> str:
         return os.path.join(self.store_path, taxid)
 
+    def _quarantine_invalid(self, path: str) -> str:
+        quarantine_path = f"{path}.corrupt.{time.time_ns()}"
+        os.replace(path, quarantine_path)
+        self.logger.warning(f"Quarantined invalid assembly {path} -> {quarantine_path}")
+        return quarantine_path
+
     _SEQUENCE_SUFFIXES = (".fasta.gz", ".fna.gz", ".fa.gz", ".fasta", ".fna", ".fa")
 
     def _candidate_files(self, directory: str, accession: str | None) -> list[str]:
@@ -93,7 +106,9 @@ class AssemblyStore:
         taxid_subdir = os.path.join(self.store_path, str(passport.taxid))
         exact = os.path.join(taxid_subdir, f"{passport.prefix}_sequence.fasta.gz")
         if os.path.exists(exact):
-            return LocalAssembly(taxid=passport.taxid, accession=passport.accession, file_path=exact)
+            if is_valid_sequence_file(exact):
+                return LocalAssembly(taxid=passport.taxid, accession=passport.accession, file_path=exact)
+            self._quarantine_invalid(exact)
 
         candidates = self._candidate_files(taxid_subdir, passport.accession)
         if not candidates and passport.accession is None:
@@ -103,6 +118,15 @@ class AssemblyStore:
                 candidates.extend(self._candidate_files(os.path.join(self.store_path, entry), passport.accession))
                 if candidates:
                     break
+
+        candidates = list(dict.fromkeys(candidates))
+        valid_candidates = []
+        for candidate in candidates:
+            if is_valid_sequence_file(candidate):
+                valid_candidates.append(candidate)
+            else:
+                self._quarantine_invalid(candidate)
+        candidates = valid_candidates
 
         if not candidates:
             self.logger.warning(f"No assembly file found for taxid {passport.taxid} and accession {passport.accession}")
@@ -146,6 +170,12 @@ class AssemblyStore:
 
         if not success_dl:
             self.logger.error(f"Failed to download assembly for passport {passport.taxid}")
+            return None
+
+        if not is_valid_sequence_file(assembly_file_path):
+            self.logger.error(f"Downloaded assembly is not a valid FASTA file: {assembly_file_path}")
+            if os.path.exists(assembly_file_path):
+                self._quarantine_invalid(assembly_file_path)
             return None
 
         return LocalAssembly(taxid=passport.taxid, accession=reference_data.accession, file_path=assembly_file_path)
@@ -269,15 +299,24 @@ class AssemblyStore:
                 self.logger.warning(f"Skipping taxid {row['taxid']} due to missing assembly data.")
                 continue
 
+            if not is_valid_sequence_file(assembly_file):
+                raise RuntimeError(f"Corrupt assembly file for taxid {row['taxid']}: {assembly_file}")
+
             dest_filename = f"{accession}.fna.gz"
             if "taxid" in row and not pd.isna(row["taxid"]):
                 dest_filename = f"{row['taxid']}_{dest_filename}"
             dest_path = os.path.join(mapping_references_dir, dest_filename)
 
-            if not os.path.exists(dest_path):
-                self.logger.info(f"Copying {assembly_file} to {dest_path}")
-                os.system(f"cp {assembly_file} {dest_path}")
-            else:
-                self.logger.warning(f"File {dest_path} already exists, skipping copy.")
+            if os.path.exists(dest_path):
+                if is_valid_sequence_file(dest_path):
+                    self.logger.warning(f"File {dest_path} already exists, skipping copy.")
+                    continue
+                self._quarantine_invalid(dest_path)
+
+            self.logger.info(f"Copying {assembly_file} to {dest_path}")
+            shutil.copy2(assembly_file, dest_path)
+            if not is_valid_sequence_file(dest_path):
+                self._quarantine_invalid(dest_path)
+                raise RuntimeError(f"Copied mapping reference is corrupt: {dest_path}")
 
         self.logger.info(f"Mapping references setup complete in {mapping_references_dir}.")

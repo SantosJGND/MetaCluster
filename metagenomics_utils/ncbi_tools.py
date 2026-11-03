@@ -1,4 +1,5 @@
 # You need to install Biopython: pip install biopython
+import gzip
 import json
 import logging
 import os
@@ -33,6 +34,35 @@ NCBI_TAXONOMY_LEVELS_EXTENDED = [
     "genus",
     "species",
 ]
+
+
+def is_valid_sequence_file(path: str) -> bool:
+    """Return True when ``path`` is a non-empty FASTA file.
+
+    Gzipped files are fully decompressed so truncated files and CRC failures are
+    rejected before they can enter the reference cache.
+    """
+    try:
+        if not os.path.isfile(path) or os.path.getsize(path) == 0:
+            return False
+        with open(path, "rb") as handle:
+            is_gzip = handle.read(2) == b"\x1f\x8b"
+        if is_gzip:
+            with gzip.open(path, "rb") as handle:
+                if not handle.readline().startswith(b">"):
+                    return False
+                while handle.read(1024 * 1024):
+                    pass
+            return True
+        with open(path, "rb") as handle:
+            return handle.readline().startswith(b">")
+    except (OSError, EOFError, gzip.BadGzipFile):
+        return False
+
+
+def _temporary_path(output_path: str) -> str:
+    """Return a process-unique temporary path next to ``output_path``."""
+    return f"{output_path}.tmp.{os.getpid()}.{time.time_ns()}"
 
 
 def retry_with_backoff(max_retries=3, initial_delay=1, backoff_factor=2):
@@ -590,26 +620,32 @@ def get_representative_assembly(
 
 @retry_with_backoff(max_retries=3, initial_delay=1)
 def retrieve_reference_sequence(nucleotide_id, output_path, gzipped=True) -> bool:
+    tmp_path = _temporary_path(output_path)
     try:
         handle = Entrez.efetch(db="nucleotide", id=nucleotide_id, rettype="fasta", retmode="text")
         fasta_data = handle.read()
         handle.close()
+        os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
         if gzipped:
-            import gzip
-
-            with gzip.open(output_path, "wt") as f:
+            with gzip.open(tmp_path, "wt") as f:
                 f.write(fasta_data)
         else:
-            with open(output_path, "w") as f:
+            with open(tmp_path, "w") as f:
                 f.write(fasta_data)
+        if not is_valid_sequence_file(tmp_path):
+            raise ValueError(f"Downloaded sequence is not a valid FASTA file: {output_path}")
+        os.replace(tmp_path, output_path)
         return True
     except Exception as e:
         print(f"An error occurred while downloading sequence: {e}")
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
         return False
 
 
 @retry_with_backoff(max_retries=3, initial_delay=1)
 def retrieve_assembly_sequence(assembly_id, output_path) -> bool:
+    tmp_path = _temporary_path(output_path)
     try:
         handle = Entrez.esummary(db="assembly", id=assembly_id, report="full")
         summary = Entrez.read(handle)
@@ -621,12 +657,18 @@ def retrieve_assembly_sequence(assembly_id, output_path) -> bool:
             return False
         asm_name = ftp_path.split("/")[-1]
         fasta_url = f"{ftp_path}/{asm_name}_genomic.fna.gz"
-        result = subprocess.run(["wget", "-O", output_path, fasta_url], capture_output=True, check=False)
+        os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+        result = subprocess.run(["wget", "-O", tmp_path, fasta_url], capture_output=True, check=False)
         if result.returncode != 0:
             raise RuntimeError(f"Failed to download file: {result.stderr.decode()}")
+        if not is_valid_sequence_file(tmp_path):
+            raise ValueError(f"Downloaded assembly is not a valid gzipped FASTA file: {output_path}")
+        os.replace(tmp_path, output_path)
         return True
     except Exception as e:
         print(f"An error occurred while downloading assembly: {e}")
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
         return False
 
 

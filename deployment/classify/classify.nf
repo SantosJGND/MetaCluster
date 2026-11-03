@@ -473,6 +473,10 @@ process MapBWAPaired {
     """
     set -o pipefail
     if [ "${ref_name}" != "${ref_fa}" ]; then
+        if ! gzip -t "${ref_name}"; then
+            echo "ERROR: corrupt gzipped reference: ${ref_name}" >&2
+            exit 1
+        fi
         gzip -dc "${ref_name}" > "${ref_fa}"
     fi
     if [ ! -f "${ref_fa}.bwt" ]; then

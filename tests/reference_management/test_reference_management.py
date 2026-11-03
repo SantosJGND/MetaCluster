@@ -2,8 +2,10 @@
 Tests for reference_management module.
 """
 
+import gzip
 import os
 from pathlib import Path
+from types import SimpleNamespace
 
 import pandas as pd
 import pytest
@@ -11,6 +13,12 @@ import pytest
 os.environ["NCBI_EMAIL"] = "test@example.com"
 
 project_root = Path(__file__).parent.parent.parent
+
+
+def _write_gzip_fasta(path: Path, content: str = ">seq\nACGT\n") -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with gzip.open(path, "wt") as handle:
+        handle.write(content)
 
 
 class TestPassport:
@@ -240,3 +248,237 @@ class TestRetrieveSkip:
         marker = Path(mapping) / "DATASET_SKIPPED.txt"
         assert marker.exists()
         assert "50.0%" in marker.read_text()
+
+
+class TestSequenceFileValidation:
+    """Integrity checks for cached and downloaded FASTA files."""
+
+    def test_valid_gzip_fasta(self, tmp_path):
+        from metagenomics_utils.ncbi_tools import is_valid_sequence_file
+
+        path = tmp_path / "valid.fna.gz"
+        _write_gzip_fasta(path)
+        assert is_valid_sequence_file(str(path)) is True
+
+    def test_truncated_gzip_fasta(self, tmp_path):
+        from metagenomics_utils.ncbi_tools import is_valid_sequence_file
+
+        path = tmp_path / "truncated.fna.gz"
+        _write_gzip_fasta(path, ">seq\n" + "ACGT" * 1000 + "\n")
+        path.write_bytes(path.read_bytes()[:-4])
+        assert is_valid_sequence_file(str(path)) is False
+
+    def test_empty_file(self, tmp_path):
+        from metagenomics_utils.ncbi_tools import is_valid_sequence_file
+
+        path = tmp_path / "empty.fna.gz"
+        path.write_bytes(b"")
+        assert is_valid_sequence_file(str(path)) is False
+
+    def test_valid_plain_fasta(self, tmp_path):
+        from metagenomics_utils.ncbi_tools import is_valid_sequence_file
+
+        path = tmp_path / "valid.fna"
+        path.write_text(">seq\nACGT\n")
+        assert is_valid_sequence_file(str(path)) is True
+
+    def test_invalid_plain_fasta(self, tmp_path):
+        from metagenomics_utils.ncbi_tools import is_valid_sequence_file
+
+        path = tmp_path / "invalid.fna"
+        path.write_text("not a fasta\n")
+        assert is_valid_sequence_file(str(path)) is False
+
+
+class TestAssemblyStoreIntegrity:
+    """Local cached assemblies must be valid before they are reused."""
+
+    def _store(self, tmp_path):
+        from metagenomics_utils.reference_utils import AssemblyStore
+
+        return AssemblyStore(str(tmp_path / "store"))
+
+    def test_valid_local_assembly_is_returned(self, tmp_path):
+        from metagenomics_utils.ncbi_tools import Passport
+
+        store = self._store(tmp_path)
+        path = tmp_path / "store" / "562" / "562_GCF_000001.1_sequence.fasta.gz"
+        _write_gzip_fasta(path)
+
+        assembly = store.retrieve_local_assembly(Passport(taxid="562", accession="GCF_000001.1"))
+
+        assert assembly is not None
+        assert assembly.file_path == str(path)
+
+    def test_truncated_local_assembly_is_quarantined(self, tmp_path):
+        from metagenomics_utils.ncbi_tools import Passport
+
+        store = self._store(tmp_path)
+        path = tmp_path / "store" / "562" / "562_GCF_000001.1_sequence.fasta.gz"
+        _write_gzip_fasta(path, ">seq\n" + "ACGT" * 1000 + "\n")
+        path.write_bytes(path.read_bytes()[:-4])
+
+        assembly = store.retrieve_local_assembly(Passport(taxid="562", accession="GCF_000001.1"))
+
+        assert assembly is None
+        assert not path.exists()
+        assert list(path.parent.glob("*.corrupt.*"))
+
+    def test_invalid_local_assembly_triggers_download(self, tmp_path, monkeypatch):
+        from metagenomics_utils.ncbi_tools import Passport, ReferenceData, is_valid_sequence_file
+
+        store = self._store(tmp_path)
+        path = tmp_path / "store" / "562" / "562_GCF_000001.1_sequence.fasta.gz"
+        _write_gzip_fasta(path, ">seq\n" + "ACGT" * 1000 + "\n")
+        path.write_bytes(path.read_bytes()[:-4])
+        reference = ReferenceData(taxid="562", accession="GCF_000001.1", assembly_id="1")
+
+        def _fake_retrieve(reference_data, output_path, gzipped=True):
+            _write_gzip_fasta(Path(output_path))
+            return True
+
+        monkeypatch.setattr(store.ncbi, "retrieve_sequence_databases", _fake_retrieve)
+
+        assembly = store.retrieve_assembly(Passport(taxid="562", accession="GCF_000001.1"), reference_data=reference)
+
+        assert assembly is not None
+        assert is_valid_sequence_file(assembly.file_path) is True
+        assert list(path.parent.glob("*.corrupt.*"))
+
+
+class TestAtomicDownloads:
+    """Downloaded references must only appear after passing validation."""
+
+    def test_reference_sequence_download_is_atomic(self, tmp_path, monkeypatch):
+        import metagenomics_utils.ncbi_tools as ncbi
+
+        class _Handle:
+            def read(self):
+                return ">seq\nACGT\n"
+
+            def close(self):
+                return None
+
+        monkeypatch.setattr(ncbi.Entrez, "efetch", lambda **kwargs: _Handle())
+        output = tmp_path / "sequence.fasta.gz"
+
+        assert ncbi.retrieve_reference_sequence("1", str(output), gzipped=True) is True
+        assert ncbi.is_valid_sequence_file(str(output)) is True
+        assert not list(tmp_path.glob("*.tmp.*"))
+
+    def test_reference_sequence_failure_leaves_no_output(self, tmp_path, monkeypatch):
+        import metagenomics_utils.ncbi_tools as ncbi
+
+        class _Handle:
+            def read(self):
+                raise RuntimeError("boom")
+
+            def close(self):
+                return None
+
+        monkeypatch.setattr(ncbi.Entrez, "efetch", lambda **kwargs: _Handle())
+        output = tmp_path / "sequence.fasta.gz"
+
+        assert ncbi.retrieve_reference_sequence("1", str(output), gzipped=True) is False
+        assert not output.exists()
+        assert not list(tmp_path.glob("*.tmp.*"))
+
+    def test_assembly_download_is_atomic(self, tmp_path, monkeypatch):
+        import metagenomics_utils.ncbi_tools as ncbi
+
+        class _Handle:
+            def close(self):
+                return None
+
+        def _fake_run(cmd, capture_output, check):
+            with gzip.open(cmd[2], "wt") as handle:
+                handle.write(">seq\nACGT\n")
+            return SimpleNamespace(returncode=0, stderr=b"")
+
+        monkeypatch.setattr(ncbi.Entrez, "esummary", lambda **kwargs: _Handle())
+        monkeypatch.setattr(
+            ncbi.Entrez,
+            "read",
+            lambda handle: {
+                "DocumentSummarySet": {
+                    "DocumentSummary": [{"FtpPath_RefSeq": "ftp://example/GCF_000001.1", "FtpPath_GenBank": ""}]
+                }
+            },
+        )
+        monkeypatch.setattr(ncbi.subprocess, "run", _fake_run)
+        output = tmp_path / "assembly.fasta.gz"
+
+        assert ncbi.retrieve_assembly_sequence("1", str(output)) is True
+        assert ncbi.is_valid_sequence_file(str(output)) is True
+        assert not list(tmp_path.glob("*.tmp.*"))
+
+    def test_invalid_assembly_download_leaves_no_output(self, tmp_path, monkeypatch):
+        import metagenomics_utils.ncbi_tools as ncbi
+
+        class _Handle:
+            def close(self):
+                return None
+
+        def _fake_run(cmd, capture_output, check):
+            Path(cmd[2]).write_text("not gzip")
+            return SimpleNamespace(returncode=0, stderr=b"")
+
+        monkeypatch.setattr(ncbi.Entrez, "esummary", lambda **kwargs: _Handle())
+        monkeypatch.setattr(
+            ncbi.Entrez,
+            "read",
+            lambda handle: {
+                "DocumentSummarySet": {
+                    "DocumentSummary": [{"FtpPath_RefSeq": "ftp://example/GCF_000001.1", "FtpPath_GenBank": ""}]
+                }
+            },
+        )
+        monkeypatch.setattr(ncbi.subprocess, "run", _fake_run)
+        output = tmp_path / "assembly.fasta.gz"
+
+        assert ncbi.retrieve_assembly_sequence("1", str(output)) is False
+        assert not output.exists()
+        assert not list(tmp_path.glob("*.tmp.*"))
+
+
+class TestMappingReferenceCopy:
+    """Mapping references must be validated before reaching the mapper."""
+
+    def _store(self, tmp_path):
+        from metagenomics_utils.reference_utils import AssemblyStore
+
+        return AssemblyStore(str(tmp_path / "store"))
+
+    def test_corrupt_source_is_rejected(self, tmp_path):
+        store = self._store(tmp_path)
+        source = tmp_path / "source.fna.gz"
+        _write_gzip_fasta(source, ">seq\n" + "ACGT" * 1000 + "\n")
+        source.write_bytes(source.read_bytes()[:-4])
+        mapping_dir = tmp_path / "references_to_map"
+        df = pd.DataFrame(
+            [{"taxid": 562, "assembly_accession": "GCF_000001.1", "assembly_file": str(source)}]
+        )
+
+        with pytest.raises(RuntimeError, match="Corrupt assembly file"):
+            store.setup_mapping_references(df, mapping_references_dir=str(mapping_dir))
+        assert not list(mapping_dir.iterdir())
+
+    def test_corrupt_destination_is_replaced(self, tmp_path):
+        store = self._store(tmp_path)
+        source = tmp_path / "source.fna.gz"
+        _write_gzip_fasta(source)
+        mapping_dir = tmp_path / "references_to_map"
+        mapping_dir.mkdir()
+        dest = mapping_dir / "562_GCF_000001.1.fna.gz"
+        _write_gzip_fasta(dest, ">seq\n" + "ACGT" * 1000 + "\n")
+        dest.write_bytes(dest.read_bytes()[:-4])
+        df = pd.DataFrame(
+            [{"taxid": 562, "assembly_accession": "GCF_000001.1", "assembly_file": str(source)}]
+        )
+
+        store.setup_mapping_references(df, mapping_references_dir=str(mapping_dir))
+
+        from metagenomics_utils.ncbi_tools import is_valid_sequence_file
+
+        assert is_valid_sequence_file(str(dest)) is True
+        assert list(mapping_dir.glob("*.corrupt.*"))
