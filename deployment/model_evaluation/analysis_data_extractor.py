@@ -38,7 +38,7 @@ import seaborn as sns
 from deployment.model_evaluation.data_loader import passes_assembly_completeness
 from deployment.model_evaluation.metrics import compute_recall
 from deployment.model_evaluation.result_models import write_pipeline_metadata
-from metagenomics_utils.ncbi_tools import NCBITaxonomistWrapper
+from metagenomics_utils.ncbi_tools import NCBITaxonomistWrapper, resolve_species_truth_taxids
 from metagenomics_utils.overlap_manager import OverlapManager
 from metagenomics_utils.overlap_manager.node_stats import get_m_stats_matrix
 
@@ -152,7 +152,7 @@ def collect_all_input_taxids(study_output_filepath: str, datasets: list[str]) ->
     for ds in datasets:
         input_path = os.path.join(study_output_filepath, ds, "input", f"{ds}.tsv")
         try:
-            df = pd.read_csv(input_path, sep="\t")
+            df = resolve_species_truth_taxids(pd.read_csv(input_path, sep="\t"))
             all_taxids.update(df["taxid"].dropna().unique().tolist())
         except Exception as e:
             logger.warning(f"Could not read input for {ds}: {e}")
@@ -373,7 +373,7 @@ def process_dataset(
     om_path = os.path.join(study_output_filepath, dataset, "clustering")
     input_path = os.path.join(study_output_filepath, dataset, "input", f"{dataset}.tsv")
 
-    input_df = pd.read_csv(input_path, sep="\t")
+    input_df = resolve_species_truth_taxids(pd.read_csv(input_path, sep="\t"))
     input_taxids = set(input_df["taxid"].dropna().unique())
 
     overlap_manager = OverlapManager(om_path)

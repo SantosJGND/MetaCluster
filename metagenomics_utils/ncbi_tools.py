@@ -440,6 +440,124 @@ def retrieve_taxid_from_accession(accession: str, db: str | None = None) -> int 
     return None
 
 
+ACCESSION_SPECIES_CACHE_PATH = os.path.join(
+    os.path.expanduser("~"), ".cache", "metagenomics-evaluation-pipeline", "accession_species_taxid.json"
+)
+
+
+def _load_accession_cache(cache_path: str) -> dict[str, int | None]:
+    if not os.path.exists(cache_path):
+        return {}
+    with open(cache_path) as handle:
+        return {acc: (int(tax) if tax is not None else None) for acc, tax in json.load(handle).items()}
+
+
+def _save_accession_cache(cache: dict[str, int | None], cache_path: str) -> None:
+    os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+    tmp_path = _temporary_path(cache_path)
+    with open(tmp_path, "w") as handle:
+        json.dump(cache, handle, indent=1, sort_keys=True)
+    os.replace(tmp_path, cache_path)
+
+
+@retry_with_backoff(max_retries=3, initial_delay=1)
+def _fetch_species_taxid(accession: str) -> int | None:
+    """Return the species-rank taxid of a nucleotide accession, or None if it cannot be determined."""
+    handle = Entrez.esearch(db="nucleotide", term=accession, retmax=1)
+    record = Entrez.read(handle)
+    handle.close()
+    if not record["IdList"]:
+        return None
+
+    handle = Entrez.esummary(db="nucleotide", id=record["IdList"][0])
+    summary = Entrez.read(handle)
+    handle.close()
+    tax_id = summary[0].get("TaxId")
+    if not tax_id:
+        return None
+
+    handle = Entrez.efetch(db="taxonomy", id=str(tax_id), retmode="xml")
+    tax_records = Entrez.read(handle)
+    handle.close()
+    if not tax_records:
+        return None
+    node = tax_records[0]
+    if node.get("Rank") == "species":
+        return int(node["TaxId"])
+    for ancestor in node.get("LineageEx", []):
+        if ancestor.get("Rank") == "species":
+            return int(ancestor["TaxId"])
+    return None
+
+
+def resolve_accession_species_taxids(
+    accessions: list[str], cache_path: str = ACCESSION_SPECIES_CACHE_PATH, request_delay: float = 0.4
+) -> dict[str, int | None]:
+    """
+    Map nucleotide/assembly accessions to species-rank taxids via Entrez, with a JSON cache.
+
+    Successful lookups and definitive "no species" answers are cached. Network errors are not
+    cached, so they are retried on the next run. Accessions that cannot be resolved map to None.
+    """
+    cache = _load_accession_cache(cache_path)
+    result: dict[str, int | None] = {}
+    new_entries = False
+    for accession in accessions:
+        if accession in cache:
+            result[accession] = cache[accession]
+            continue
+        try:
+            species_taxid = _fetch_species_taxid(accession)
+        except Exception as e:
+            logging.warning(f"Species taxid lookup failed for {accession}: {e}")
+            result[accession] = None
+            continue
+        cache[accession] = species_taxid
+        result[accession] = species_taxid
+        new_entries = True
+        time.sleep(request_delay)
+
+    if new_entries:
+        _save_accession_cache(cache, cache_path)
+    return result
+
+
+def resolve_species_truth_taxids(
+    input_df: pd.DataFrame, cache_path: str = ACCESSION_SPECIES_CACHE_PATH
+) -> pd.DataFrame:
+    """
+    Replace the ``taxid`` column of a simulation input table with the species taxid of ``assembly_accession``.
+
+    The original input-rank taxid is kept in ``taxid_input_rank``. Rows whose accession cannot be
+    resolved keep their input taxid (counted and logged).
+    """
+    if "assembly_accession" not in input_df.columns:
+        logging.warning("Input table has no assembly_accession column; truth taxids kept at input rank")
+        return input_df
+    if input_df.empty:
+        return input_df
+
+    accessions = input_df["assembly_accession"].dropna().astype(str).str.strip().unique().tolist()
+    mapping = resolve_accession_species_taxids(accessions, cache_path=cache_path)
+
+    species = input_df["assembly_accession"].map(
+        lambda acc: mapping.get(str(acc).strip()) if pd.notna(acc) else None
+    )
+    out = input_df.copy()
+    out["taxid_input_rank"] = input_df["taxid"]
+    rewritten = pd.to_numeric(species.where(species.notna(), input_df["taxid"]), errors="coerce")
+    if rewritten.notna().all():
+        rewritten = rewritten.astype(int)
+    out["taxid"] = rewritten
+
+    n_fallback = int(species.isna().sum())
+    logging.info(
+        f"Species truth taxids: {len(input_df) - n_fallback} rewritten, "
+        f"{n_fallback} kept at input rank (accession unresolved)"
+    )
+    return out
+
+
 @dataclass
 class Passport:
     taxid: str | None

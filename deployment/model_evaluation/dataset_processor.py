@@ -11,6 +11,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from metagenomics_utils.ncbi_tools import resolve_species_truth_taxids
 from metagenomics_utils.overlap_manager import OverlapManager
 from metagenomics_utils.overlap_manager.node_stats import get_m_stats_matrix
 from metagenomics_utils.overlap_manager.om_models import (
@@ -224,7 +225,7 @@ class DatasetProcessor:
             logger.warning(f"No mapped reads for {data_set_name}")
             return None, pd.DataFrame()
 
-        input_df = pd.read_csv(input_path, sep="\t")
+        input_df = resolve_species_truth_taxids(pd.read_csv(input_path, sep="\t"))
         input_summary = input_df[["sample", "taxid", "reads", "mutation_rate"]].drop_duplicates()
         input_summary = input_summary.merge(self.input_tax_df, on="taxid", how="left")
 

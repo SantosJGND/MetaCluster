@@ -38,6 +38,7 @@ from collections.abc import Iterable
 import pandas as pd
 
 from deployment.model_evaluation.data_loader import passes_assembly_completeness
+from metagenomics_utils.ncbi_tools import resolve_species_truth_taxids
 
 logger = logging.getLogger(__name__)
 
@@ -212,6 +213,7 @@ def diagnose_dataset(study_output: str, dataset: str) -> pd.DataFrame:
     input_df = _read_tsv(os.path.join(base, "input", f"{dataset}.tsv"))
     if input_df is None:
         return pd.DataFrame()
+    input_df = resolve_species_truth_taxids(input_df)
     classification_df = _read_tsv(os.path.join(base, "classification", f"{dataset}_merged_classification.tsv"))
     matched_df = _read_tsv(os.path.join(base, "output", "matched_assemblies.tsv"))
     coverage_df = _read_tsv(os.path.join(base, "output", "merged_coverage_statistics.tsv"))

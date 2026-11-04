@@ -11,7 +11,7 @@ import os
 import numpy as np
 import pandas as pd
 
-from metagenomics_utils.ncbi_tools import NCBITaxonomistWrapper
+from metagenomics_utils.ncbi_tools import NCBITaxonomistWrapper, resolve_species_truth_taxids
 
 logger = logging.getLogger(__name__)
 
@@ -365,7 +365,9 @@ class DataLoader:
     def _load_datasets(self):
         """Load all dataset folders."""
         self.folders = get_dataset_folders(self.config.study_output_filepath, self.config.max_training)
-        self.all_input_data = retrieve_simulation_input(self.config.study_output_filepath)
+        self.all_input_data = resolve_species_truth_taxids(
+            retrieve_simulation_input(self.config.study_output_filepath)
+        )
 
         output_db = os.path.join(self.config.study_output_filepath, "taxa.db")
         self.ncbi_wrapper = NCBITaxonomistWrapper(db=output_db)
