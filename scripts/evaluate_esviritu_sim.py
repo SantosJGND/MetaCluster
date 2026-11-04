@@ -42,6 +42,28 @@ def norm_species(v):
     return s
 
 
+GENERIC_TAXONOMY_NAMES = {
+    'viruses', 'unclassified viruses', 'root', 'cellular organisms', 'unclassified'
+}
+
+
+def is_generic_taxonomy_name(v):
+    """True for placeholder labels that cannot support taxonomic matching."""
+    if v is None: return True
+    n = re.sub(r'\s+', ' ', str(v).strip().replace('_', ' ')).strip().lower()
+    return n in GENERIC_TAXONOMY_NAMES or n.startswith('unclassified')
+
+
+def norm_rank(v):
+    """Strip rank prefix, normalise separators, and reject generic labels."""
+    if v is None: return None
+    s = re.sub(r'^[a-z]__', '', str(v).strip()).strip()
+    s = re.sub(r'\s+', ' ', s.replace('_', ' ')).strip()
+    if s.lower() in {'', 'nan', 'none', 'null', 'na'}: return None
+    if is_generic_taxonomy_name(s): return None
+    return s
+
+
 def to_float(v):
     try:
         return float(v)
@@ -90,6 +112,8 @@ def load_esviritu_rows(esviritu_dir, dataset):
             'read_count': to_float(row.get('read_count')),
             'covered_bases': to_float(row.get('covered_bases')),
             'mean_coverage': to_float(row.get('mean_coverage')),
+            'esv_species': norm_species(row.get('species') or row.get('Species')),
+            'esv_order': norm_rank(row.get('order') or row.get('Order')),
         })
     return rows
 
@@ -128,11 +152,12 @@ def save_identifier_cache(path, cache):
 def resolve_prediction_taxids(rows, cache_path=None):
     """Attach an NCBI taxid to each row via Accession, then Assembly.
 
-    The species column in the EsViritu table is intentionally ignored: species
-    are derived from the identifier through NCBI Entrez/taxonomy instead.
-    Unresolved identifiers are logged and leave ``pred_taxid`` as None, which
-    the classifier counts as a false positive. Successful identifier→taxid
-    lookups are persisted to ``cache_path`` so repeated runs skip Entrez.
+    Species and order are derived from the resolved identifier through NCBI
+    taxonomy. The EsViritu ``species``/``order`` columns are retained as
+    fallbacks for rows whose identifier cannot be resolved. Unresolved
+    identifiers are logged and leave ``pred_taxid`` as None. Successful
+    identifier→taxid lookups are persisted to ``cache_path`` so repeated runs
+    skip Entrez.
     """
     if not rows:
         return rows
@@ -185,7 +210,7 @@ def resolve_prediction_taxids(rows, cache_path=None):
             label = row.get('accession') or row.get('assembly') or '<no identifier>'
             if label not in unresolved:
                 unresolved.add(label)
-                logger.warning(f'unresolved identifier {label}: no NCBI taxid; counted as FP')
+                logger.warning(f'unresolved identifier {label}: no NCBI taxid; using EsViritu species/order fallback if available')
     if dirty:
         save_identifier_cache(cache_path, cache)
     resolved = sum(1 for row in rows if row['pred_taxid'])
@@ -194,9 +219,12 @@ def resolve_prediction_taxids(rows, cache_path=None):
 
 
 def resolve_taxonomy(taxids):
-    """Map GT taxids to species-rank name and order via the NCBI taxonomist lineage cache.
+    """Map taxids to species-level match keys and orders via the NCBI lineage cache.
 
-    Failures are logged and the affected taxids keep species=None (unmatchable, counted FN).
+    Species-rank names are preferred. When a taxid has no species-rank lineage
+    entry, the deepest available taxonomic name is used as the match key. This
+    keeps ground-truth and predicted taxids symmetric for taxa absent from the
+    species-rank cache. Failures without a usable fallback remain unmatchable.
     """
     info = {t: {'species': None, 'order': None} for t in taxids}
     ids = sorted({int(t) for t in taxids if str(t).isdigit()})
@@ -207,35 +235,47 @@ def resolve_taxonomy(taxids):
     try:
         from metagenomics_utils.ncbi_tools import NCBITaxonomistWrapper
     except Exception as e:
-        logger.error(f'taxonomy lookup unavailable ({e}); no GT taxid can be matched to species')
+        logger.error(f'taxonomy lookup unavailable ({e}); no taxid can be matched to species')
         return info
     try:
         wrapper = NCBITaxonomistWrapper(db=TAXA_DB if os.path.exists(TAXA_DB) else None)
         wrapper.resolve_lineages(ids)
     except Exception as e:
-        logger.error(f'lineage resolution failed ({e}); no GT taxid can be matched to species')
+        logger.error(f'lineage resolution failed ({e}); no taxid can be matched to species')
         return info
+    fallback_count = 0
     for t in taxids:
         if not str(t).isdigit():
-            logger.error(f'GT taxid {t!r} is not numeric; cannot resolve species, counted as FN')
+            logger.error(f'taxid {t!r} is not numeric; cannot resolve species')
             continue
         tid = int(t)
         if tid not in wrapper.lineages:
-            logger.error(f'taxid {t}: no lineage found; cannot resolve species, counted as FN')
+            logger.error(f'taxid {t}: no lineage found; cannot resolve species')
             continue
-        info[t]['species'] = norm_species(wrapper.get_level(tid, NCBITaxonomistWrapper.TAX_SPECIES))
-        info[t]['order'] = wrapper.get_level(tid, NCBITaxonomistWrapper.TAX_ORDER)
-        if info[t]['species'] is None:
-            logger.error(f'taxid {t}: no species-rank lineage entry; cannot match, counted as FN')
+        species = norm_species(wrapper.get_level(tid, NCBITaxonomistWrapper.TAX_SPECIES))
+        info[t]['order'] = norm_rank(wrapper.get_level(tid, NCBITaxonomistWrapper.TAX_ORDER))
+        if species is None:
+            fallback = norm_species(wrapper.get_name(tid))
+            if fallback and not is_generic_taxonomy_name(fallback):
+                species = fallback
+                fallback_count += 1
+                logger.warning(
+                    f'taxid {t}: no species-rank lineage entry; '
+                    f'using deepest available name {fallback!r} as match key'
+                )
+            else:
+                logger.error(f'taxid {t}: no usable species match key')
+        info[t]['species'] = species
+    logger.info(f'taxonomy species-key fallback used for {fallback_count} taxids')
     return info
 
 
 def classify_dataset(ds, gt, tax_info, rows, min_reads):
     """Per-dataset records using the node_stats rule: TP only for best_match_is_best rows.
 
-    - best row per GT species = max(covered>0, read_count, mean_coverage); TP for GT taxa with a best row, else FN
-    - other rows of a matched species = CROSSHIT (not counted in precision/recall)
-    - rows with no species match to any GT taxon = FP
+    - best row per GT species key = max(covered>0, read_count, mean_coverage); TP for GT taxa with a best row, else FN
+    - other rows of a matched species key = CROSSHIT (not counted in precision/recall)
+    - rows with no species match to any GT taxon = FP, retaining their predicted species and order
     - rows below min_reads are ignored
     """
     gt_by_species = defaultdict(list)
@@ -249,7 +289,7 @@ def classify_dataset(ds, gt, tax_info, rows, min_reads):
     for r in rows:
         if r['read_count'] < min_reads:
             continue
-        if r['species'] in gt_by_species:
+        if r['species'] and r['species'] in gt_by_species:
             by_species[r['species']].append(r)
         else:
             unmatched.append(r)
@@ -279,7 +319,7 @@ def classify_dataset(ds, gt, tax_info, rows, min_reads):
 
     for r in unmatched:
         records.append({
-            'dataset': ds, 'taxid': '', 'order': None, 'species': r['species'] or '',
+            'dataset': ds, 'taxid': '', 'order': r.get('order'), 'species': r.get('species') or '',
             'assembly': r['assembly'], 'read_count': r['read_count'], 'status': 'FP',
         })
     return records
@@ -370,9 +410,9 @@ def main():
     tax_info = resolve_taxonomy(sorted(all_taxids))
     for rows in rows_by_ds.values():
         for row in rows:
-            info = tax_info.get(row['pred_taxid'], {})
-            row['species'] = info.get('species')
-            row['order'] = info.get('order')
+            info = tax_info.get(row['pred_taxid'], {}) if row.get('pred_taxid') else {}
+            row['species'] = info.get('species') or row.get('esv_species')
+            row['order'] = info.get('order') or row.get('esv_order')
 
     detailed = []
     per_ds = []
@@ -428,7 +468,14 @@ def main():
     wcsv(os.path.join(args.output_dir,'esviritu_sim_evaluation_overall.tsv'), overall)
     wcsv(os.path.join(args.output_dir,'esviritu_sim_evaluation_aggregate.tsv'), aggregate)
     wcsv(os.path.join(args.output_dir,'esviritu_sim_evaluation_by_order.tsv'), order_out)
-    meta = {'datasets': datasets, 'min_reads': args.min_reads, 'n_datasets': len(datasets)}
+    meta = {
+        'datasets': datasets,
+        'min_reads': args.min_reads,
+        'n_datasets': len(datasets),
+        'taxonomy_species_fallback': 'deepest_available_name',
+        'prediction_taxonomy_fallback': 'esviritu_species_and_order',
+        'fp_orders_preserved': True,
+    }
     with open(os.path.join(args.output_dir,'esviritu_sim_evaluation_metadata.json'),'w') as fh:
         json.dump(meta, fh, indent=2)
     if plots and HAS_MPL and per_ds:
