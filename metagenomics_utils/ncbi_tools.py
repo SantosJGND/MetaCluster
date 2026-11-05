@@ -522,14 +522,184 @@ def resolve_accession_species_taxids(
     return result
 
 
+TAXID_LINEAGE_CACHE_PATH = os.path.join(os.path.dirname(ACCESSION_SPECIES_CACHE_PATH), "taxid_lineage.json")
+ACCESSION_TAXID_CACHE_PATH = os.path.join(os.path.dirname(ACCESSION_SPECIES_CACHE_PATH), "accession_taxid.json")
+
+# Ranks a retrieved taxid may have to be rewritten to a truth. Clades (e.g. 262897) are excluded.
+SPECIES_OR_BELOW_RANKS = {"species", "subspecies", "strain", "no rank"}
+
+
+@retry_with_backoff(max_retries=3, initial_delay=1)
+def _fetch_accession_taxid(accession: str) -> int | None:
+    """Return the taxid Entrez reports for a nucleotide accession (esummary TaxId), or None."""
+    handle = Entrez.esearch(db="nucleotide", term=accession, retmax=1)
+    record = Entrez.read(handle)
+    handle.close()
+    if not record["IdList"]:
+        return None
+    handle = Entrez.esummary(db="nucleotide", id=record["IdList"][0])
+    summary = Entrez.read(handle)
+    handle.close()
+    tax_id = summary[0].get("TaxId")
+    return int(tax_id) if tax_id else None
+
+
+def resolve_accession_taxids(
+    accessions: list[str], cache_path: str = ACCESSION_TAXID_CACHE_PATH, request_delay: float = 0.4
+) -> dict[str, int | None]:
+    """
+    Map accessions to the taxid Entrez reports for them, with a JSON cache.
+
+    Successful lookups and "no record" answers are cached. Network errors are not cached.
+    """
+    cache = _read_json_cache(cache_path)
+    result: dict[str, int | None] = {}
+    new_entries = False
+    for accession in accessions:
+        if accession in cache:
+            result[accession] = cache[accession]
+            continue
+        try:
+            taxid = _fetch_accession_taxid(accession)
+        except Exception as e:
+            logging.warning(f"Taxid lookup failed for {accession}: {e}")
+            result[accession] = None
+            continue
+        cache[accession] = taxid
+        result[accession] = taxid
+        new_entries = True
+        time.sleep(request_delay)
+
+    if new_entries:
+        _write_json_cache(cache, cache_path)
+    return result
+
+
+# Ranks above species. Only truth taxids at these ranks are rewritten to the retrieved taxid.
+ABOVE_SPECIES_RANKS = {
+    "genus",
+    "subgenus",
+    "tribe",
+    "subfamily",
+    "family",
+    "superfamily",
+    "suborder",
+    "order",
+    "subclass",
+    "class",
+    "subphylum",
+    "phylum",
+    "kingdom",
+    "superkingdom",
+    "domain",
+    "realm",
+}
+
+
+def _read_json_cache(cache_path: str) -> dict:
+    if not os.path.exists(cache_path):
+        return {}
+    with open(cache_path) as handle:
+        return json.load(handle)
+
+
+def _write_json_cache(cache: dict, cache_path: str) -> None:
+    os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+    tmp_path = _temporary_path(cache_path)
+    with open(tmp_path, "w") as handle:
+        json.dump(cache, handle, indent=1, sort_keys=True)
+    os.replace(tmp_path, cache_path)
+
+
+@retry_with_backoff(max_retries=3, initial_delay=1)
+def _fetch_taxid_lineage(taxid: int) -> tuple[str | None, set[int], int | None]:
+    """
+    Return ``(rank, lineage_taxids, species_ancestor)`` for a taxid.
+
+    The lineage includes the taxid itself. ``species_ancestor`` is the nearest species-rank node
+    (the taxid itself when it is species rank), or None when there is none.
+    """
+    handle = Entrez.efetch(db="taxonomy", id=str(taxid), retmode="xml")
+    records = Entrez.read(handle)
+    handle.close()
+    if not records:
+        return None, set(), None
+    node = records[0]
+    ancestors = node.get("LineageEx", [])
+    lineage = {int(x["TaxId"]) for x in ancestors}
+    lineage.add(int(node["TaxId"]))
+
+    species_ancestor = None
+    if node.get("Rank") == "species":
+        species_ancestor = int(node["TaxId"])
+    else:
+        for x in reversed(ancestors):
+            if x.get("Rank") == "species":
+                species_ancestor = int(x["TaxId"])
+                break
+    return node.get("Rank"), lineage, species_ancestor
+
+
+def resolve_taxid_lineages(
+    taxids: list[int], cache_path: str = TAXID_LINEAGE_CACHE_PATH, request_delay: float = 0.4
+) -> dict[int, tuple[str | None, set[int], int | None]]:
+    """
+    Map taxids to ``(rank, lineage_taxids, species_ancestor)`` via Entrez, with a JSON cache.
+
+    Cache entries written before ``species_ancestor`` was stored are refetched. Failed lookups are
+    not cached and are missing from the result.
+    """
+    raw = _read_json_cache(cache_path)
+    result: dict[int, tuple[str | None, set[int], int | None]] = {}
+    new_entries = False
+    for taxid in taxids:
+        key = str(taxid)
+        if key in raw and "species_ancestor" in raw[key]:
+            entry = raw[key]
+            result[taxid] = (entry["rank"], set(entry["lineage"]), entry["species_ancestor"])
+            continue
+        try:
+            rank, lineage, species_ancestor = _fetch_taxid_lineage(taxid)
+        except Exception as e:
+            logging.warning(f"Taxonomy lookup failed for taxid {taxid}: {e}")
+            continue
+        if rank is None:
+            continue
+        raw[key] = {"rank": rank, "lineage": sorted(lineage), "species_ancestor": species_ancestor}
+        result[taxid] = (rank, lineage, species_ancestor)
+        new_entries = True
+        time.sleep(request_delay)
+
+    if new_entries:
+        _write_json_cache(raw, cache_path)
+    return result
+
+
+def _as_int(value) -> int | None:
+    if value is None or pd.isna(value):
+        return None
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return None
+
+
 def resolve_species_truth_taxids(
-    input_df: pd.DataFrame, cache_path: str = ACCESSION_SPECIES_CACHE_PATH
+    input_df: pd.DataFrame,
+    accession_cache_path: str = ACCESSION_TAXID_CACHE_PATH,
+    lineage_cache_path: str = TAXID_LINEAGE_CACHE_PATH,
 ) -> pd.DataFrame:
     """
-    Replace the ``taxid`` column of a simulation input table with the species taxid of ``assembly_accession``.
+    Rewrite truth taxids of a simulation input table to the taxid Entrez reports for ``assembly_accession``.
 
-    The original input-rank taxid is kept in ``taxid_input_rank``. Rows whose accession cannot be
-    resolved keep their input taxid (counted and logged).
+    A row is rewritten only when all of these hold:
+      - the input taxid is above species rank (see ``ABOVE_SPECIES_RANKS``);
+      - the retrieved taxid is species rank or below (see ``SPECIES_OR_BELOW_RANKS``) and has a
+        species ancestor, so clades such as 262897 are not rewritten;
+      - the input taxid lies in the retrieved taxid's lineage.
+
+    Every other row keeps its input taxid. The original value is kept in ``taxid_input_rank``.
+    Outcome counts are logged per reason.
     """
     if "assembly_accession" not in input_df.columns:
         logging.warning("Input table has no assembly_accession column; truth taxids kept at input rank")
@@ -538,23 +708,48 @@ def resolve_species_truth_taxids(
         return input_df
 
     accessions = input_df["assembly_accession"].dropna().astype(str).str.strip().unique().tolist()
-    mapping = resolve_accession_species_taxids(accessions, cache_path=cache_path)
+    retrieved = resolve_accession_taxids(accessions, cache_path=accession_cache_path)
+    retrieved_ids = [
+        _as_int(retrieved.get(str(acc).strip())) if pd.notna(acc) else None for acc in input_df["assembly_accession"]
+    ]
+    input_ids = [_as_int(t) for t in input_df["taxid"]]
 
-    species = input_df["assembly_accession"].map(
-        lambda acc: mapping.get(str(acc).strip()) if pd.notna(acc) else None
-    )
+    needed = {t for t in input_ids if t is not None} | {r for r in retrieved_ids if r is not None}
+    lineages = resolve_taxid_lineages(sorted(needed), cache_path=lineage_cache_path)
+
+    reasons: list[str] = []
+    new_ids: list[int | None] = []
+    for t, r in zip(input_ids, retrieved_ids):
+        if t is None:
+            reason, new = "input_taxid_missing", None
+        elif r is None:
+            reason, new = "accession_unresolved", t
+        elif t == r:
+            reason, new = "already_retrieved", t
+        elif t not in lineages:
+            reason, new = "input_rank_unresolved", t
+        elif lineages[t][0] not in ABOVE_SPECIES_RANKS:
+            reason, new = "input_at_or_below_species", t
+        elif r not in lineages:
+            reason, new = "retrieved_lineage_unresolved", t
+        elif lineages[r][0] not in SPECIES_OR_BELOW_RANKS or lineages[r][2] is None:
+            reason, new = "retrieved_above_species", t
+        elif t in lineages[r][1]:
+            reason, new = "rewritten", r
+        else:
+            reason, new = "not_descendant", t
+        reasons.append(reason)
+        new_ids.append(new)
+
     out = input_df.copy()
     out["taxid_input_rank"] = input_df["taxid"]
-    rewritten = pd.to_numeric(species.where(species.notna(), input_df["taxid"]), errors="coerce")
+    rewritten = pd.to_numeric(pd.Series(new_ids, index=input_df.index, dtype=object), errors="coerce")
     if rewritten.notna().all():
         rewritten = rewritten.astype(int)
     out["taxid"] = rewritten
 
-    n_fallback = int(species.isna().sum())
-    logging.info(
-        f"Species truth taxids: {len(input_df) - n_fallback} rewritten, "
-        f"{n_fallback} kept at input rank (accession unresolved)"
-    )
+    counts = pd.Series(reasons).value_counts().to_dict()
+    logging.info(f"Truth taxid rewrite outcomes: {counts}")
     return out
 
 
