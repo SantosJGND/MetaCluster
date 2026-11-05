@@ -3144,7 +3144,7 @@ def get_spurious_composition(input_df, m_stats_matrix: pd.DataFrame, tax_df: pd.
 
     for _, row in input_df.iterrows():
         taxid = row["taxid"]
-        tax = row[tax_level]
+        tax = str(row[tax_level])
         trash_subset = m_stats_matrix[m_stats_matrix["is_trash"] == True]
         trash_subset = trash_subset[trash_subset["cross_hit_match"] == taxid]
         subset_composition = get_subset_composition(trash_subset, tax_df, tax_level=tax_level).set_index("tax_level").T
@@ -3163,7 +3163,7 @@ def get_cross_hit_composition(input_df, m_stats_matrix: pd.DataFrame, tax_df: pd
 
     for _, row in input_df.iterrows():
         taxid = row["taxid"]
-        tax = row[tax_level]
+        tax = str(row[tax_level])
         crosshit_subset = m_stats_matrix[m_stats_matrix["is_crosshit"] == True]
         crosshit_subset = crosshit_subset[crosshit_subset["cross_hit_match"] == taxid]
         subset_composition = (
