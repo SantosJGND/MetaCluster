@@ -22,6 +22,9 @@ PIPELINE_DIR = os.path.dirname(HERE)
 TAXA_DB = os.path.join(PIPELINE_DIR, 'taxa.db')
 LOG_NAME = 'esviritu_sim_evaluation.log'
 IDENTIFIER_CACHE_NAME = 'esviritu_identifier_taxid_cache.json'
+GT_ACCESSION_CACHE_NAME = 'esviritu_gt_accession_species_taxid_cache.json'
+GT_LINEAGE_CACHE_NAME = 'esviritu_gt_taxid_lineage_cache.json'
+GT_ACCESSION_COLUMNS = ('assembly_accession', 'accid', 'accession_id', 'accession', 'Accession')
 
 logger = logging.getLogger('evaluate_esviritu_sim')
 
@@ -78,24 +81,131 @@ def read_table(path):
         fh.seek(0)
         return list(csv.DictReader(fh, delimiter=delim))
 
-def load_gt_taxids(sim_root, dataset):
+def gt_accession(row):
+    """Return the first usable accession value from a ground-truth row."""
+    for column in GT_ACCESSION_COLUMNS:
+        value = row.get(column)
+        if value is None:
+            continue
+        accession = str(value).strip()
+        if accession and accession.lower() not in {'nan', 'none', 'null', 'na'}:
+            return accession
+    return None
+
+
+def gt_taxid(row):
+    """Return the ground-truth taxid, falling back to a numeric path prefix."""
+    taxid = norm_taxid(row.get('taxid') or row.get('TaxID') or row.get('taxID') or row.get('taxon'))
+    if taxid:
+        return taxid
+    p = row.get('path') or row.get('fasta') or row.get('assembly_file') or ''
+    m = re.search(r'(\d{4,})_', os.path.basename(str(p)))
+    return m.group(1) if m else None
+
+
+def load_gt_taxids(sim_root, dataset, cache_dir=None):
+    """Load ground-truth taxids, rewriting above-species taxids to accession species taxids.
+
+    The simulation input records the accession of the genome used to generate reads. When
+    that accession resolves to a species-rank taxid and the input taxid is an ancestor of
+    it, the truth taxid is rewritten to the species taxid. Inputs that resolve to the same
+    species taxid are therefore deduplicated by the returned set.
+    """
     gt = set()
     gt_info = {}
+    counts = defaultdict(int)
     input_path = os.path.join(sim_root, dataset, 'input', f'{dataset}.tsv')
     if not os.path.exists(input_path):
         logger.warning(f'{dataset}: ground-truth file not found: {input_path}')
-        return gt, gt_info
-    for row in read_table(input_path):
-        taxid = norm_taxid(row.get('taxid') or row.get('TaxID') or row.get('taxID') or row.get('taxon'))
-        if not taxid:
-            # try parse from path
-            p = row.get('path') or row.get('fasta') or row.get('assembly_file') or ''
-            m = re.search(r'(\d{4,})_', os.path.basename(str(p)))
-            if m: taxid = m.group(1)
-        if taxid:
-            gt.add(taxid)
-            gt_info[taxid] = {'taxid': taxid}
-    return gt, gt_info
+        return gt, gt_info, dict(counts)
+
+    rows = read_table(input_path)
+    accessions = sorted({acc for row in rows if (acc := gt_accession(row))})
+    species_by_accession = {}
+    lineages = {}
+    above_species_ranks = set()
+    lineage_available = False
+
+    if accessions:
+        if PIPELINE_DIR not in sys.path:
+            sys.path.insert(0, PIPELINE_DIR)
+        try:
+            from metagenomics_utils.ncbi_tools import (
+                ABOVE_SPECIES_RANKS,
+                resolve_accession_species_taxids,
+                resolve_taxid_lineages,
+            )
+        except Exception as e:
+            logger.warning(f'ground-truth accession resolution unavailable ({e}); keeping input taxids')
+        else:
+            lineage_available = True
+            above_species_ranks = ABOVE_SPECIES_RANKS
+            if cache_dir:
+                species_by_accession = resolve_accession_species_taxids(
+                    accessions, cache_path=os.path.join(cache_dir, GT_ACCESSION_CACHE_NAME)
+                )
+            else:
+                species_by_accession = resolve_accession_species_taxids(accessions)
+
+            needed = set()
+            for row in rows:
+                taxid = gt_taxid(row)
+                if taxid and str(taxid).isdigit():
+                    needed.add(int(taxid))
+            for species_taxid in species_by_accession.values():
+                if species_taxid is not None:
+                    needed.add(int(species_taxid))
+            if needed:
+                if cache_dir:
+                    lineages = resolve_taxid_lineages(
+                        sorted(needed), cache_path=os.path.join(cache_dir, GT_LINEAGE_CACHE_NAME)
+                    )
+                else:
+                    lineages = resolve_taxid_lineages(sorted(needed))
+
+    def resolve_truth_taxid(taxid, species_taxid):
+        if not lineage_available:
+            return taxid, 'accession_resolution_unavailable'
+        if species_taxid is None:
+            return taxid, 'accession_unresolved'
+        species_taxid = str(int(species_taxid))
+        if taxid is None:
+            return species_taxid, 'input_taxid_missing'
+        if taxid == species_taxid:
+            return taxid, 'already_species'
+        if not str(taxid).isdigit():
+            return taxid, 'input_taxid_non_numeric'
+        input_id = int(taxid)
+        species_id = int(species_taxid)
+        if input_id not in lineages:
+            return taxid, 'input_rank_unresolved'
+        if lineages[input_id][0] not in above_species_ranks:
+            return taxid, 'input_at_or_below_species'
+        if species_id not in lineages:
+            return taxid, 'species_lineage_unresolved'
+        if lineages[species_id][0] != 'species':
+            return taxid, 'resolved_not_species'
+        if input_id in lineages[species_id][1]:
+            return species_taxid, 'rewritten'
+        return taxid, 'not_descendant'
+
+    for row in rows:
+        taxid = gt_taxid(row)
+        accession = gt_accession(row)
+        species_taxid = species_by_accession.get(accession) if accession else None
+        resolved, reason = resolve_truth_taxid(taxid, species_taxid)
+        counts[reason] += 1
+        if resolved:
+            gt.add(resolved)
+            gt_info[resolved] = {
+                'taxid': resolved,
+                'taxid_input_rank': taxid,
+                'accession': accession,
+                'rewrite_reason': reason,
+            }
+
+    logger.info(f'{dataset}: GT taxid rewrite outcomes: {dict(counts)}')
+    return gt, gt_info, dict(counts)
 
 
 def load_esviritu_rows(esviritu_dir, dataset):
@@ -397,8 +507,11 @@ def main():
     gt_by_ds = {}
     rows_by_ds = {}
     all_taxids = set()
+    gt_rewrite_counts = defaultdict(int)
     for ds in datasets:
-        gt, _ = load_gt_taxids(args.sim_root, ds)
+        gt, _, counts = load_gt_taxids(args.sim_root, ds, cache_dir=args.output_dir)
+        for reason, n in counts.items():
+            gt_rewrite_counts[reason] += n
         gt_by_ds[ds] = gt
         all_taxids.update(gt)
         rows = resolve_prediction_taxids(
@@ -474,6 +587,11 @@ def main():
         'n_datasets': len(datasets),
         'taxonomy_species_fallback': 'deepest_available_name',
         'prediction_taxonomy_fallback': 'esviritu_species_and_order',
+        'gt_taxid_resolution': 'accession_species_taxid',
+        'gt_accession_columns': list(GT_ACCESSION_COLUMNS),
+        'gt_accession_cache': GT_ACCESSION_CACHE_NAME,
+        'gt_taxid_lineage_cache': GT_LINEAGE_CACHE_NAME,
+        'gt_rewrite_counts': dict(sorted(gt_rewrite_counts.items())),
         'fp_orders_preserved': True,
     }
     with open(os.path.join(args.output_dir,'esviritu_sim_evaluation_metadata.json'),'w') as fh:

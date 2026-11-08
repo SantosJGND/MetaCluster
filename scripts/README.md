@@ -25,7 +25,13 @@ the simulation ground truth:
 The ground-truth table is read column-name-wise. The taxid is taken from the first
 available of `taxid`, `TaxID`, `taxID`, `taxon`; if none is present, a numeric prefix
 of the form `<digits>_` is extracted from the `path` / `fasta` / `assembly_file`
-basename.
+basename. The simulated assembly accession is taken from the first available of
+`assembly_accession`, `accid`, `accession_id`, `accession`, and `Accession`.
+
+When an input taxid is above species rank, it is rewritten to the species-rank taxid
+of the simulated accession. The rewrite is applied only when the input taxid lies in
+the resolved species lineage; otherwise the input taxid is kept. Inputs that resolve
+to the same species taxid are counted as one ground-truth taxon.
 
 EsViritu outputs are expected in the run output directory as
 `<dataset>.detected_virus.info.tsv` (plus `<dataset>_esviritu.readstats.yaml`).
@@ -47,6 +53,8 @@ Defaults: `--output-dir <sim_root>/esviritu_sim`, `--eval-dir <output-dir>/evalu
 └── evaluation/
     ├── esviritu_sim_evaluation.log
     ├── esviritu_identifier_taxid_cache.json
+    ├── esviritu_gt_accession_species_taxid_cache.json
+    ├── esviritu_gt_taxid_lineage_cache.json
     ├── esviritu_sim_evaluation_detailed.tsv
     ├── esviritu_sim_evaluation_per_dataset.tsv
     ├── esviritu_sim_evaluation_overall.tsv
@@ -98,6 +106,20 @@ dataset set. Evaluation failures are suppressed by the driver (`|| true`); consu
 ## `evaluate_esviritu_sim.py`
 
 ### Identifier and Taxonomy Resolution
+
+Ground-truth taxids are resolved from the simulated assembly accession. For each
+dataset, unique accessions are looked up with
+`metagenomics_utils.ncbi_tools.resolve_accession_species_taxids`, which returns the
+nearest species-rank taxid. An above-species input taxid is rewritten to that species
+taxid only when the input taxid is an ancestor of the resolved species taxid. Input
+taxids that are already at or below species rank, unresolved accessions, and
+non-descendant taxids are kept unchanged. Because the ground-truth set is keyed by the
+resolved taxid, multiple inputs resolving to the same species are counted once.
+
+Accession lookups are cached in
+`evaluation/esviritu_gt_accession_species_taxid_cache.json`; lineage checks are cached
+in `evaluation/esviritu_gt_taxid_lineage_cache.json`. Rewrite outcomes are counted by
+reason in the evaluation metadata.
 
 Each detection's taxid is resolved from its identifiers through NCBI. The EsViritu
 `species` and `order` columns are retained as fallbacks for rows whose identifier
@@ -238,6 +260,11 @@ One row per taxonomic order with columns `order`, `tp`, `fp`, `fn`, `precision`,
   "n_datasets": 1,
   "taxonomy_species_fallback": "deepest_available_name",
   "prediction_taxonomy_fallback": "esviritu_species_and_order",
+  "gt_taxid_resolution": "accession_species_taxid",
+  "gt_accession_columns": ["assembly_accession", "accid", "accession_id", "accession", "Accession"],
+  "gt_accession_cache": "esviritu_gt_accession_species_taxid_cache.json",
+  "gt_taxid_lineage_cache": "esviritu_gt_taxid_lineage_cache.json",
+  "gt_rewrite_counts": {"rewritten": 0, "already_species": 0},
   "fp_orders_preserved": true
 }
 ```
