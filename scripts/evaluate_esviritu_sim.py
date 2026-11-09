@@ -208,6 +208,42 @@ def load_gt_taxids(sim_root, dataset, cache_dir=None):
     return gt, gt_info, dict(counts)
 
 
+def load_panel_taxids(path):
+    """Panel taxids from the ``taxid`` column of viral_assess.tsv."""
+    if not os.path.exists(path):
+        raise SystemExit(f'panel file not found: {path}')
+    taxids = set()
+    for row in read_table(path):
+        t = norm_taxid(row.get('taxid'))
+        if t and t.isdigit():
+            taxids.add(t)
+    if not taxids:
+        raise SystemExit(f'no taxids read from panel file: {path}')
+    return taxids
+
+
+def apply_panel_rule(rows, panel, panel_by_species, counts):
+    """Prefer the panel taxid for each prediction.
+
+    1. An accession-resolved taxid already in the panel is kept.
+    2. Otherwise, if the EsViritu species matches the species key of a panel taxid,
+       that panel taxid is used (this also covers rows with no resolved taxid).
+    3. Otherwise the resolved taxid (or None) is kept.
+    """
+    for row in rows:
+        pt = row.get('pred_taxid')
+        if pt and pt in panel:
+            counts['accession_taxid_in_panel'] += 1
+            continue
+        target = panel_by_species.get(row.get('esv_species')) if row.get('esv_species') else None
+        if target:
+            row['pred_taxid'] = target
+            row['panel_remap_from'] = pt or ''
+            counts['species_matched_to_panel_taxid'] += 1
+        else:
+            counts['no_panel_match'] += 1
+
+
 def load_esviritu_rows(esviritu_dir, dataset):
     """One dict per EsViritu assembly row, keeping identifiers for NCBI lookup."""
     path = os.path.join(esviritu_dir, f'{dataset}.detected_virus.info.tsv')
@@ -497,6 +533,7 @@ def main():
     p.add_argument('--datasets', help='comma separated')
     p.add_argument('--datasets-file')
     p.add_argument('--min-reads', type=float, default=1.0)
+    p.add_argument('--panel-file', required=True, help='viral panel table (viral_assess.tsv); its taxid column drives the panel rule')
     p.add_argument('--plots', action='store_true')
     p.add_argument('--no-plots', action='store_true')
     p.add_argument('--verbose', action='store_true')
@@ -534,7 +571,18 @@ def main():
         )
         rows_by_ds[ds] = rows
         all_taxids.update(row['pred_taxid'] for row in rows if row['pred_taxid'])
+    panel = load_panel_taxids(args.panel_file)
+    all_taxids.update(panel)
     tax_info = resolve_taxonomy(sorted(all_taxids))
+    panel_by_species = {}
+    for t in sorted(panel, key=int):
+        sp = tax_info.get(t, {}).get('species')
+        if sp:
+            panel_by_species.setdefault(sp, t)
+    panel_counts = defaultdict(int)
+    for rows in rows_by_ds.values():
+        apply_panel_rule(rows, panel, panel_by_species, panel_counts)
+    logger.info(f'panel taxid rule: {dict(sorted(panel_counts.items()))}')
     for rows in rows_by_ds.values():
         for row in rows:
             info = tax_info.get(row['pred_taxid'], {}) if row.get('pred_taxid') else {}
@@ -613,6 +661,9 @@ def main():
         'gt_taxid_lineage_cache': GT_LINEAGE_CACHE_NAME,
         'gt_rewrite_counts': dict(sorted(gt_rewrite_counts.items())),
         'fp_orders_preserved': True,
+        'panel_file': os.path.basename(args.panel_file),
+        'n_panel_taxids': len(panel),
+        'panel_taxid_rule': dict(sorted(panel_counts.items())),
         'metric_definitions': {
             'precision': 'TP/(TP+FP)',
             'precision_strict': 'TP/(TP+FP+CROSSHIT)',
@@ -664,12 +715,13 @@ def main():
         try:
             data = [
                 [r['precision'] for r in per_ds],
+                [r['precision_strict'] for r in per_ds],
                 [r['recall'] for r in per_ds],
                 [r['f1'] for r in per_ds],
             ]
-            plt.figure(figsize=(6,4))
+            plt.figure(figsize=(7,4))
             plt.boxplot(data, showmeans=True)
-            plt.xticks([1, 2, 3], ['Precision', 'Recall', 'F1'])
+            plt.xticks([1, 2, 3, 4], ['Precision\n(TP/(TP+FP))', 'Strict precision\n(TP/(TP+CH+FP))', 'Recall', 'F1'])
             plt.ylim(0,1)
             plt.ylabel('Score')
             plt.title(f'Per-dataset metric distribution (n={len(per_ds)})')

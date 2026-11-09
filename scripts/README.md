@@ -294,7 +294,7 @@ failures are logged and do not abort the run.
 | `esviritu_sim_precision_recall_per_dataset.png` | Paired bars of per-dataset recall and precision. |
 | `esviritu_sim_recall_by_order.png` | Recall per taxonomic order. |
 | `esviritu_sim_aggregate_metrics.png` | Mean precision/recall/F1 across datasets with standard-deviation error bars. |
-| `esviritu_sim_metric_distribution.png` | Boxplot of per-dataset precision, recall, and F1. |
+| `esviritu_sim_metric_distribution.png` | Boxplot of per-dataset precision (TP/(TP+FP)), strict precision (TP/(TP+CH+FP)), recall, and F1. Datasets with no matched predictions contribute 0 to precision and strict precision. |
 | `esviritu_sim_tp_fp_fn_totals.png` | Stacked bar of pooled TP/FP/FN totals. |
 
 ### Conditional Outputs
