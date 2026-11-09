@@ -28,6 +28,7 @@ VERBOSE=0
 MANIFEST=""
 EVAL_SCRIPT="$SCRIPT_DIR/evaluate_esviritu_sim.py"
 EVAL_MIN_READS=1
+PANEL_FILE=""
 PLOTS=1
 DATASETS=()
 FAIL_REASON=""
@@ -57,6 +58,7 @@ Usage: $(basename "$0") [options]
   --memory-max SIZE
   --nice N
   --eval-min-reads N
+  --panel-file PATH       viral_assess.tsv panel table (required unless --dry-run)
   --eval-only
   --plots
   --no-plots
@@ -89,6 +91,7 @@ case "$1" in
 --memory-max) MEMORY_MAX="${2:?}"; shift 2;;
 --nice) NICE_VAL="${2:?}"; shift 2;;
 --eval-min-reads) EVAL_MIN_READS="${2:?}"; shift 2;;
+--panel-file) PANEL_FILE="${2:?}"; shift 2;;
 --eval-only) EVAL_ONLY=1; shift;;
 --plots) PLOTS=1; shift;;
 --no-plots) PLOTS=0; shift;;
@@ -185,11 +188,11 @@ run_in_env(){ if [[ -z $CONDA_ENV ]]; then run_capped "$@"; return $?; fi; run_c
 stage_preflight(){ local id=$1; [[ -z $ESVIRITU_DB ]]&&{ err "$id no db"; return 1; }; [[ -d $ESVIRITU_DB ]]||{ err "$id db missing"; return 1; }; local m=(); [[ -s "$ESVIRITU_DB/virus_pathogen_database.fna" ]]||m+=("fna"); [[ -s "$ESVIRITU_DB/virus_pathogen_database.all_metadata.tsv" ]]||m+=("tsv"); ((${#m[@]}))&&{ err "$id db bad"; return 1; }; resolve_sim_reads "$id"||{ err "$id reads bad"; return 1; }; return 0; }
 stage_run(){ local id=$1; local -a cmd=("$ESVIRITU_BIN" -r "${READ_FILES[@]}" -s "$id" -o "$OUTPUT_DIR" -p "$READ_FMT" -t "$CPUS" -mmP "$MMP" --min-align-length "$MIN_ALIGN_LENGTH" -q "$QUAL" -f "$FILTER_SEQS" --db "$ESVIRITU_DB"); (( KEEP_TEMP ))&&cmd+=("--keep"); (( DRY_RUN ))&&{ info "$id would run"; return 0; }; local logf="$OUTPUT_DIR/${id}_esviritu_sim_driver.out"; run_in_env "${cmd[@]}" > "$logf" 2>&1; local rc=$?; if (( rc!=0 )); then if sample_done "$id"; then warn "$id tables ok despite rc"; return 0; fi; if grep -q "No reads aligned" "$logf" 2>/dev/null; then create_empty_outputs "$id"; sample_done "$id"&&return 0; fi; err "$id rc $rc"; return 1; fi; return 0; }
 stage_verify(){ local id=$1; (( DRY_RUN ))&&return 0; sample_done "$id"||{ err "$id missing"; return 1; }; return 0; }
-stage_evaluate(){ local id=$1; (( DRY_RUN ))&&return 0; [[ -f $EVAL_SCRIPT ]]||return 0; local args=(--esviritu-dir "$OUTPUT_DIR" --sim-root "$SIM_ROOT" --output-dir "$EVAL_DIR" --datasets "$id" --min-reads "$EVAL_MIN_READS"); (( PLOTS ))&&args+=(--plots)||args+=(--no-plots); (( VERBOSE ))&&args+=(--verbose); python3 "$EVAL_SCRIPT" "${args[@]}" >/dev/null 2>&1||true; return 0; }
-run_eval_only(){ [[ -f $EVAL_SCRIPT ]]||die "evaluation script not found: $EVAL_SCRIPT"; local -a missing=(); local id; for id in "${DATASETS[@]}"; do [[ -s "$OUTPUT_DIR/$id.detected_virus.info.tsv" ]]||missing+=("$id:esviritu"); [[ -s "$SIM_ROOT/$id/input/$id.tsv" ]]||missing+=("$id:ground-truth"); done; ((${#missing[@]}==0))||{ err "missing inputs: ${missing[*]}"; return 1; }; (( DRY_RUN ))&&{ info "would evaluate ${#DATASETS[@]} datasets"; return 0; }; mkdir -p "$EVAL_DIR"||return 1; local -a args=(--esviritu-dir "$OUTPUT_DIR" --sim-root "$SIM_ROOT" --output-dir "$EVAL_DIR" --datasets "$(IFS=,; echo "${DATASETS[*]}")" --min-reads "$EVAL_MIN_READS"); (( PLOTS ))&&args+=(--plots)||args+=(--no-plots); (( VERBOSE ))&&args+=(--verbose); info "eval-only: ${#DATASETS[@]} datasets -> $EVAL_DIR"; python3 "$EVAL_SCRIPT" "${args[@]}"; }
+stage_evaluate(){ local id=$1; (( DRY_RUN ))&&return 0; [[ -f $EVAL_SCRIPT ]]||return 0; local args=(--esviritu-dir "$OUTPUT_DIR" --sim-root "$SIM_ROOT" --output-dir "$EVAL_DIR" --datasets "$id" --min-reads "$EVAL_MIN_READS" --panel-file "$PANEL_FILE"); (( PLOTS ))&&args+=(--plots)||args+=(--no-plots); (( VERBOSE ))&&args+=(--verbose); python3 "$EVAL_SCRIPT" "${args[@]}" >/dev/null 2>&1||true; return 0; }
+run_eval_only(){ [[ -f $EVAL_SCRIPT ]]||die "evaluation script not found: $EVAL_SCRIPT"; local -a missing=(); local id; for id in "${DATASETS[@]}"; do [[ -s "$OUTPUT_DIR/$id.detected_virus.info.tsv" ]]||missing+=("$id:esviritu"); [[ -s "$SIM_ROOT/$id/input/$id.tsv" ]]||missing+=("$id:ground-truth"); done; ((${#missing[@]}==0))||{ err "missing inputs: ${missing[*]}"; return 1; }; (( DRY_RUN ))&&{ info "would evaluate ${#DATASETS[@]} datasets"; return 0; }; mkdir -p "$EVAL_DIR"||return 1; local -a args=(--esviritu-dir "$OUTPUT_DIR" --sim-root "$SIM_ROOT" --output-dir "$EVAL_DIR" --datasets "$(IFS=,; echo "${DATASETS[*]}")" --min-reads "$EVAL_MIN_READS" --panel-file "$PANEL_FILE"); (( PLOTS ))&&args+=(--plots)||args+=(--no-plots); (( VERBOSE ))&&args+=(--verbose); info "eval-only: ${#DATASETS[@]} datasets -> $EVAL_DIR"; python3 "$EVAL_SCRIPT" "${args[@]}"; }
 process_sample(){ local id=$1; FAIL_REASON=""; stage_preflight "$id"||{ FAIL_REASON="preflight"; return 1; }; stage_run "$id"||{ FAIL_REASON="run"; return 1; }; stage_verify "$id"||{ FAIL_REASON="verify"; return 1; }; stage_evaluate "$id"||true; return 0; }
 manifest_init(){ [[ -f $MANIFEST ]]||{ mkdir -p "$(dirname "$MANIFEST")"; printf 'dataset\tstatus\tnote\tstarted\tfinished\n'> "$MANIFEST"; }; }
 manifest_add(){ printf '%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" "$5">> "$MANIFEST"; }
 main(){
-parse_args "$@"; if (( EVAL_ONLY )) && [[ -z $DATASETS_ARG && -z $DATASETS_FILE ]]; then discover_eval_datasets; else discover_datasets; fi; info "sim:$SIM_ROOT out:$OUTPUT_DIR eval:$EVAL_DIR n:${#DATASETS[@]}"; (( EVAL_ONLY ))&&{ run_eval_only; exit $?; }; (( DRY_RUN ))&&{ for d in "${DATASETS[@]}"; do info "would $d"; done; exit 0; }; mkdir -p "$OUTPUT_DIR" "$EVAL_DIR"; manifest_init; local n_ok=0 n_skip=0; local -a failures=(); for id in "${DATASETS[@]}"; do local started finished status="ok" note="-"; started=$(date '+%F %T'); if sample_done "$id" && (( ! FORCE )); then info "$id skip"; note="exists"; ((n_skip++)); else info "$id start"; process_sample "$id"; local rc=$?; if (( rc==0 )); then note="ok"; ((n_ok++)); else status="fail"; note="${FAIL_REASON:-unknown}"; failures+=("$id"); err "$id fail"; (( STOP_ON_ERROR ))&&break; fi; fi; finished=$(date '+%F %T'); manifest_add "$id" "$status" "$note" "$started" "$finished"; done; info "ok:$n_ok skip:$n_skip fail:${#failures[@]}"; [[ -f $EVAL_SCRIPT ]]&&python3 "$EVAL_SCRIPT" --esviritu-dir "$OUTPUT_DIR" --sim-root "$SIM_ROOT" --output-dir "$EVAL_DIR" --min-reads "$EVAL_MIN_READS" $([ $PLOTS -eq 1 ]&&echo --plots||echo --no-plots) >/dev/null 2>&1||true; ((${#failures[@]}))&&exit 1; exit 0; }
+parse_args "$@"; if (( ! DRY_RUN )) && [[ ! -f $PANEL_FILE ]]; then die "--panel-file is required and must exist (got: ${PANEL_FILE:-<unset>})"; fi; if (( EVAL_ONLY )) && [[ -z $DATASETS_ARG && -z $DATASETS_FILE ]]; then discover_eval_datasets; else discover_datasets; fi; info "sim:$SIM_ROOT out:$OUTPUT_DIR eval:$EVAL_DIR n:${#DATASETS[@]}"; (( EVAL_ONLY ))&&{ run_eval_only; exit $?; }; (( DRY_RUN ))&&{ for d in "${DATASETS[@]}"; do info "would $d"; done; exit 0; }; mkdir -p "$OUTPUT_DIR" "$EVAL_DIR"; manifest_init; local n_ok=0 n_skip=0; local -a failures=(); for id in "${DATASETS[@]}"; do local started finished status="ok" note="-"; started=$(date '+%F %T'); if sample_done "$id" && (( ! FORCE )); then info "$id skip"; note="exists"; ((n_skip++)); else info "$id start"; process_sample "$id"; local rc=$?; if (( rc==0 )); then note="ok"; ((n_ok++)); else status="fail"; note="${FAIL_REASON:-unknown}"; failures+=("$id"); err "$id fail"; (( STOP_ON_ERROR ))&&break; fi; fi; finished=$(date '+%F %T'); manifest_add "$id" "$status" "$note" "$started" "$finished"; done; info "ok:$n_ok skip:$n_skip fail:${#failures[@]}"; [[ -f $EVAL_SCRIPT ]]&&python3 "$EVAL_SCRIPT" --esviritu-dir "$OUTPUT_DIR" --sim-root "$SIM_ROOT" --output-dir "$EVAL_DIR" --min-reads "$EVAL_MIN_READS" --panel-file "$PANEL_FILE" $([ $PLOTS -eq 1 ]&&echo --plots||echo --no-plots) >/dev/null 2>&1||true; ((${#failures[@]}))&&exit 1; exit 0; }
 main "$@"

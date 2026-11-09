@@ -331,6 +331,7 @@ Table files with no rows are not written (the writer skips empty tables). In pra
 | `--memory-max SIZE` | `24G` | Memory cap applied when `systemd-run` is available. |
 | `--nice N` | none | Run EsViritu under `nice`. |
 | `--eval-min-reads N` | `1` | Passed to the evaluator as `--min-reads`. |
+| `--panel-file PATH` | required (unless `--dry-run`) | Panel table (`viral_assess.tsv`) passed to the evaluator as `--panel-file`. The run stops before any work if it is missing. |
 | `--eval-only` | off | Evaluate existing outputs without running EsViritu. |
 | `--plots` / `--no-plots` | plots on | Enable/disable evaluation plots. |
 | `--keep-temp` | off | Pass `--keep` to EsViritu. |
