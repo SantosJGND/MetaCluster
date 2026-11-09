@@ -162,10 +162,10 @@ For each dataset, with `--min-reads` (default `1.0`):
    - **TP** if its species-level key has a best matching row.
    - **FN** otherwise.
 
-A crosshit is never counted as an FP and is excluded from precision and recall. When
-several ground-truth taxids resolve to the same species, each taxid is reported as a
-TP for the same best row. FP records retain the predicted species and order rather
-than discarding them.
+A crosshit is never counted as an FP and is excluded from the primary precision and
+recall. When several ground-truth taxids resolve to the same species, the species is
+counted once. FP records retain the predicted species and order rather than
+discarding them.
 
 ### Status Semantics
 
@@ -181,13 +181,22 @@ than discarding them.
 Per dataset:
 
 ```
-precision = TP / (TP + FP)
-recall    = TP / (TP + FN)
-f1        = 2 * precision * recall / (precision + recall)
+precision              = TP / (TP + FP)
+precision_strict       = TP / (TP + FP + CROSSHIT)
+recall                 = TP / (TP + FN)
+f1                     = 2 * precision * recall / (precision + recall)
+crosshit_rate_matched  = CROSSHIT / (TP + CROSSHIT)
+crosshit_rate_all      = CROSSHIT / (TP + FP + CROSSHIT)
+crosshits_per_tp       = CROSSHIT / TP
 ```
 
+The primary `precision` treats crosshits as excluded. `precision_strict` also counts
+crosshits in the denominator. `crosshit_rate_matched` uses matched predictions
+(`TP + CROSSHIT`) as the denominator; `crosshit_rate_all` uses all predictions
+(`TP + FP + CROSSHIT`).
+
 - **Overall / micro metrics** pool the `detailed` records across all datasets before
-  computing precision, recall, and F1.
+  computing precision, precision_strict, recall, F1, and the crosshit rates.
 - **Aggregate / macro metrics** are the distribution of the per-dataset precision,
   recall, and F1: count, mean, median, population standard deviation, minimum, and
   maximum.
@@ -234,12 +243,17 @@ One row per dataset.
 | `n_gt` | Number of ground-truth taxids. |
 | `n_pred_matched` | Number of TP taxids (equal to `tp`). |
 | `tp`, `fp`, `fn`, `crosshit` | Status counts. |
-| `precision`, `recall`, `f1` | Per-dataset metrics. |
+| `precision`, `recall`, `f1` | Per-dataset primary metrics. |
+| `precision_strict` | Per-dataset precision with crosshits in the denominator. |
+| `crosshit_rate_matched`, `crosshit_rate_all` | Per-dataset crosshit rates using matched and all predictions, respectively. |
+| `crosshits_per_tp` | Per-dataset crosshits divided by TP (`0` when TP is zero). |
 
 ### `esviritu_sim_evaluation_overall.tsv`
 
-Two columns, `metric` and `value`, with rows for `precision`, `recall`, `f1`, `tp`,
-`fp`, `fn`, and `crosshit`. Values are pooled (micro) over all datasets.
+Two columns, `metric` and `value`, with rows for `precision`, `precision_strict`,
+`recall`, `f1`, `tp`, `fp`, `fn`, `crosshit`, `crosshit_rate_matched`,
+`crosshit_rate_all`, and `crosshits_per_tp`. Values are pooled (micro) over all
+datasets.
 
 ### `esviritu_sim_evaluation_aggregate.tsv`
 

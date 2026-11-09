@@ -443,7 +443,21 @@ def count_metrics(records):
     prec = tp/(tp+fp) if (tp+fp)>0 else 0.0
     rec = tp/(tp+fn) if (tp+fn)>0 else 0.0
     f1 = 2*prec*rec/(prec+rec) if (prec+rec)>0 else 0.0
-    return {'tp': tp, 'fp': fp, 'fn': fn, 'crosshit': cross, 'precision': prec, 'recall': rec, 'f1': f1}
+    all_hits = tp + fp + cross
+    matched_hits = tp + cross
+    return {
+        'tp': tp,
+        'fp': fp,
+        'fn': fn,
+        'crosshit': cross,
+        'precision': prec,
+        'precision_strict': tp/all_hits if all_hits>0 else 0.0,
+        'recall': rec,
+        'f1': f1,
+        'crosshit_rate_matched': cross/matched_hits if matched_hits>0 else 0.0,
+        'crosshit_rate_all': cross/all_hits if all_hits>0 else 0.0,
+        'crosshits_per_tp': cross/tp if tp>0 else 0.0,
+    }
 
 
 def distribution_stats(values):
@@ -540,7 +554,13 @@ def main():
 
     # overall (micro: pooled over all rows)
     m_all = count_metrics(detailed)
-    overall = [{'metric': k, 'value': m_all[k]} for k in ('precision', 'recall', 'f1', 'tp', 'fp', 'fn', 'crosshit')]
+    overall = [
+        {'metric': k, 'value': m_all[k]}
+        for k in (
+            'precision', 'precision_strict', 'recall', 'f1', 'tp', 'fp', 'fn',
+            'crosshit', 'crosshit_rate_matched', 'crosshit_rate_all', 'crosshits_per_tp',
+        )
+    ]
 
     # macro: distribution of per-dataset precision/recall/f1
     aggregate = []
@@ -593,6 +613,15 @@ def main():
         'gt_taxid_lineage_cache': GT_LINEAGE_CACHE_NAME,
         'gt_rewrite_counts': dict(sorted(gt_rewrite_counts.items())),
         'fp_orders_preserved': True,
+        'metric_definitions': {
+            'precision': 'TP/(TP+FP)',
+            'precision_strict': 'TP/(TP+FP+CROSSHIT)',
+            'recall': 'TP/(TP+FN)',
+            'f1': '2*precision*recall/(precision+recall)',
+            'crosshit_rate_matched': 'CROSSHIT/(TP+CROSSHIT)',
+            'crosshit_rate_all': 'CROSSHIT/(TP+FP+CROSSHIT)',
+            'crosshits_per_tp': 'CROSSHIT/TP',
+        },
     }
     with open(os.path.join(args.output_dir,'esviritu_sim_evaluation_metadata.json'),'w') as fh:
         json.dump(meta, fh, indent=2)
